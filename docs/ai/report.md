@@ -6,7 +6,7 @@ read_when:
 
 # Pi prompt editor report
 
-Status: completed and tested. Updated 2026-10-09T22:22:11+02:00.
+Status: completed and tested. Updated 2026-10-09T22:31:34+02:00.
 
 ## Repository and runtime setup
 
@@ -22,6 +22,10 @@ loads before modal, which wraps its editor factory and decorates the same editor
 instance. History, callbacks, focus, app controls, and paste metadata stay native.
 The old cached history checkout and its preexisting dirty lockfile were preserved.
 Nothing was published or pushed.
+
+The `/history` command itself only replaces draft text with `setEditorText()`.
+Shared history owns an editor factory solely to seed its separate native Up/Down
+history list. That extra feature was not removed during the final review.
 
 ## Current behavior
 
@@ -69,9 +73,19 @@ and modal last; generic load-order-independent wrapping remains optional.
 Historical review records are in each project's `docs/ai/oracle-reviews.md` and
 remain uncommitted as requested by the peer-work skill.
 
+## Final focused review
+
+A fresh review reproduced three Kitty-protocol decoding failures: Shift+G was
+handled as `g`, unbound Shift+I entered insert mode, and encoded Backspace was
+ignored. A small decoding-precedence correction now honors parsed Shift identity
+and forwards recognized control keys to native handling. Regression coverage also
+checks shifted symbol alternates and Ctrl+C forwarding. No new commands, history
+behavior changes, or unrelated fixes were introduced. Tests were added before
+being run, then the production correction was validated.
+
 ## Validation
 
-- Modal: TypeScript check and all **30 tests** pass.
+- Modal: TypeScript check and all **33 tests** pass.
 - Shared history: TypeScript check and all **5 tests** pass; production code is
   unchanged.
 - Real-package integration passes across startup/new/resume/fork/reload, checking

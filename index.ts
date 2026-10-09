@@ -65,7 +65,9 @@ export function addModalKeys(editor: CustomEditor, tui: TUI): void {
 
     const parsed = parseKey(data);
     const plain = parsed?.replace(/^shift\+/, "");
-    const key = decodeKittyPrintable(data) ?? (
+    // Parsed control keys must reach the native handler; printable decoding can include DEL.
+    const decoded = parsed && plain !== "space" && plain?.length !== 1 ? undefined : decodeKittyPrintable(data);
+    const key = decoded !== undefined ? (parsed?.startsWith("shift+") ? decoded.toUpperCase() : decoded) : (
       plain === "space" ? " " :
       plain?.length === 1 ? (parsed === plain ? plain : plain.toUpperCase()) :
       data.length === 1 && data.charCodeAt(0) >= 32 && data !== "\x7f" ? data : undefined

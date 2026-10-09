@@ -184,6 +184,37 @@ test("Kitty printable keys work without inserting unrecognized letters", () => {
   assert.equal(editor.getText(), "one\ntwo");
 });
 
+test("Kitty Shift+G works with or without a shifted alternate codepoint", () => {
+  for (const data of ["\x1b[103;2u", "\x1b[103:71;2u", "\x1b[71;2u"]) {
+    const editor = create("first\nlast");
+    normal(editor);
+    keys(editor, "gg");
+    editor.handleInput(data);
+    assert.deepEqual(editor.getCursor(), { line: 1, col: 0 });
+    editor.handleInput("\x1b[52:36;2u"); // Shift+4 with '$' alternate still means line end.
+    assert.deepEqual(editor.getCursor(), { line: 1, col: 4 });
+  }
+});
+
+test("unbound Kitty Shift+I does not accidentally enter insert mode", () => {
+  const editor = create("draft");
+  normal(editor);
+  editor.handleInput("\x1b[105;2u");
+  keys(editor, "q");
+  assert.equal(editor.getText(), "draft");
+});
+
+test("Kitty Backspace is forwarded as editing input, not ignored as printable text", () => {
+  const editor = create("abc");
+  normal(editor);
+  editor.handleInput("\x1b[127u");
+  assert.equal(editor.getText(), "ab");
+  let clears = 0;
+  editor.onAction("app.clear", () => { clears++; });
+  editor.handleInput("\x1b[99;5u"); // Ctrl+C still reaches the application.
+  assert.equal(clears, 1);
+});
+
 test("a at the end of a logical line stays on that line", () => {
   const editor = create("foo\nbar");
   normal(editor);

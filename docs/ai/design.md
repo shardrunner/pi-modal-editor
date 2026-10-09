@@ -25,7 +25,9 @@ read_when:
   `p`/`P` insert the saved draft below/above the current line; an empty snapshot
   is a no-op. The register is internal, not the system clipboard.
 - Dismiss autocomplete before `gg`/`G`, clamp `a` at logical-line end, and use
-  Pi's public key parser for modifyOtherKeys printable commands.
+  Pi's public key parser for Kitty and modifyOtherKeys key identity. Preserve
+  Shift on printable Kitty commands and forward parsed control keys to native
+  handling rather than interpreting them through the printable decoder.
 - Source verification and independent reviews confirm that Pi resets extension
   UI before session replacement and reload. Preserve the existing history-first,
   modal-last ordering; no shared-history implementation patch is needed.
