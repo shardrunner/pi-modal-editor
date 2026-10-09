@@ -1,5 +1,5 @@
 import { CustomEditor, type ExtensionAPI, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import { decodeKittyPrintable, isKeyRelease, matchesKey, truncateToWidth, visibleWidth, type TUI } from "@earendil-works/pi-tui";
+import { decodeKittyPrintable, isKeyRelease, matchesKey, parseKey, truncateToWidth, visibleWidth, type TUI } from "@earendil-works/pi-tui";
 
 type EditorFactory = NonNullable<Parameters<ExtensionUIContext["setEditorComponent"]>[0]>;
 const movement: Record<string, string> = {
@@ -7,7 +7,11 @@ const movement: Record<string, string> = {
 };
 
 /** Decorate the existing instance: history, callbacks, focus and app handlers stay intact. */
-export function addModalKeys(editor: CustomEditor, tui: TUI): void {
+export function addModalKeys(
+  editor: CustomEditor,
+  tui: TUI,
+  warn: (message: string) => void = (message) => { throw new Error(message); },
+): void {
   const input = editor.handleInput.bind(editor);
   const render = editor.render.bind(editor);
   let mode: "insert" | "normal" = "insert";
@@ -17,6 +21,7 @@ export function addModalKeys(editor: CustomEditor, tui: TUI): void {
 
   // Arrow movement honors the native visual wrapping. Stop before crossing into history.
   function moveToLine(line: number): void {
+    if (editor.isShowingAutocomplete()) input("\x1b");
     while (editor.getCursor().line !== line) {
       const before = editor.getCursor();
       input(before.line > line ? "\x1b[A" : "\x1b[B");
@@ -62,19 +67,33 @@ export function addModalKeys(editor: CustomEditor, tui: TUI): void {
     }
     if (mode === "insert") return input(data);
 
-    const key = decodeKittyPrintable(data) ?? (data.length === 1 && data.charCodeAt(0) >= 32 ? data : undefined);
+    const parsed = parseKey(data);
+    const plain = parsed?.replace(/^shift\+/, "");
+    const key = decodeKittyPrintable(data) ?? (
+      plain === "space" ? " " :
+      plain?.length === 1 ? (parsed === plain ? plain : plain.toUpperCase()) :
+      data.length === 1 && data.charCodeAt(0) >= 32 && data !== "\x7f" ? data : undefined
+    );
     const previous = pending;
     pending = undefined;
     if (key && previous === key) {
       if (key === "d") deleteLine();
-      else if (key === "y") yank = editor.getLines()[editor.getCursor().line];
-      else if (key === "g") moveToLine(0);
+      else if (key === "y") {
+        const line = editor.getLines()[editor.getCursor().line];
+        // Paste IDs are mutable and reused after submission. Never retain a stale reference.
+        if (/\[paste #\d+(?: (?:\+\d+ lines|\d+ chars))?\]/.test(line)) {
+          warn("Cannot yank a line containing a collapsed paste. Open it in the external editor first; the previous yank is unchanged.");
+        } else yank = line;
+      } else if (key === "g") moveToLine(0);
       return;
     }
     if (key === "d" || key === "y" || key === "g") pending = key;
     else if (key === "G") moveToLine(editor.getLines().length - 1);
     else if (key === "i" || key === "a") {
-      if (key === "a") input("\x1b[C");
+      if (key === "a") {
+        const { line, col } = editor.getCursor();
+        if (col < editor.getLines()[line].length) input("\x1b[C");
+      }
       mode = "insert";
       tui.requestRender();
     } else if (key === "x") {
@@ -86,7 +105,10 @@ export function addModalKeys(editor: CustomEditor, tui: TUI): void {
       editor.insertTextAtCursor(key === "p" ? `\n${yank}` : `${yank}\n`);
       moveToLine(key === "p" ? line + 1 : line);
     } else if (key && movement[key]) input(movement[key]);
-    else if (key === undefined && (data.charCodeAt(0) < 32 || data.charCodeAt(0) === 127)) input(data);
+    else if (key === undefined && (data.charCodeAt(0) < 32 || data.charCodeAt(0) === 127)) {
+      // Unknown modifyOtherKeys text must not fall through to native text insertion.
+      if (!(data.startsWith("\x1b[27;") && parsed === undefined)) input(data);
+    }
     // Ignore unrecognized printable input in normal mode.
   };
 
@@ -115,7 +137,7 @@ export default function (pi: ExtensionAPI): void {
           throw new Error(`Modal editor requires an editor exposing ${method}().`);
         }
       }
-      addModalKeys(editor as CustomEditor, tui);
+      addModalKeys(editor as CustomEditor, tui, (message) => ctx.ui.notify(message, "warning"));
       return editor;
     };
     wrappers.add(wrapped);

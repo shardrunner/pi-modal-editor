@@ -10,9 +10,9 @@ const theme: EditorTheme = { borderColor: (text) => text, selectList: getSelectL
 const tui = { requestRender() {}, terminal: { rows: 30, columns: 80 } } as unknown as TUI;
 const bindings = new KeybindingsManager();
 
-function create(text: string) {
+function create(text: string, warn?: (message: string) => void) {
   const editor = new CustomEditor(tui, theme, bindings);
-  addModalKeys(editor, tui);
+  addModalKeys(editor, tui, warn);
   editor.setText(text);
   editor.render(80);
   return editor;
@@ -161,6 +161,75 @@ test("Kitty printable keys work without inserting unrecognized letters", () => {
   assert.equal(editor.getText(), "one\ntwo");
 });
 
+test("a at the end of a logical line stays on that line", () => {
+  const editor = create("foo\nbar");
+  normal(editor);
+  keys(editor, "gg$a!");
+  assert.equal(editor.getText(), "foo!\nbar");
+});
+
+test("modifyOtherKeys printable input obeys normal-mode commands and ignores other letters", () => {
+  const editor = create("one\ntwo");
+  normal(editor);
+  keys(editor, "gg");
+  editor.handleInput("\x1b[27;2;71~"); // Shift+G
+  assert.deepEqual(editor.getCursor(), { line: 1, col: 0 });
+  editor.handleInput("\x1b[27;2;81~"); // Shift+Q (unbound)
+  editor.handleInput("\x1b[27;2;32~"); // Shift+Space (unbound)
+  editor.handleInput("\x1b[27;2;30028~"); // Shift+界 (unbound)
+  assert.equal(editor.getText(), "one\ntwo");
+  let clears = 0;
+  editor.onAction("app.clear", () => { clears++; });
+  editor.handleInput("\x1b[27;5;99~"); // Ctrl+C still reaches the application.
+  assert.equal(clears, 1);
+});
+
+test("gg/G dismiss autocomplete; j/k retain native list navigation", async () => {
+  const editor = create("first\nlast");
+  editor.setAutocompleteProvider({
+    async getSuggestions() {
+      return { prefix: "", items: [{ value: "one", label: "one" }, { value: "two", label: "two" }] };
+    },
+    applyCompletion() { throw new Error("unexpected completion"); },
+  });
+  normal(editor);
+  editor.handleInput("\t");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(editor.isShowingAutocomplete(), true);
+  const before = editor.getCursor();
+  keys(editor, "k");
+  assert.deepEqual(editor.getCursor(), before);
+  keys(editor, "gg");
+  assert.equal(editor.isShowingAutocomplete(), false);
+  assert.deepEqual(editor.getCursor(), { line: 0, col: 0 });
+  editor.handleInput("\t");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(editor.isShowingAutocomplete(), true);
+  keys(editor, "G");
+  assert.equal(editor.isShowingAutocomplete(), false);
+  assert.deepEqual(editor.getCursor(), { line: 1, col: 0 });
+});
+
+test("yy rejects collapsed paste markers and preserves the previous self-contained yank", () => {
+  const warnings: string[] = [];
+  const editor = create("safe line", (message) => { warnings.push(message); });
+  normal(editor);
+  keys(editor, "yyi");
+  editor.setText("");
+  editor.handleInput(`\x1b[200~${"A".repeat(2100)}\x1b[201~`);
+  normal(editor);
+  keys(editor, "yy");
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /collapsed paste/);
+  editor.onSubmit = () => {};
+  keys(editor, "i");
+  editor.handleInput("\r"); // Native submission clears and reuses paste IDs.
+  editor.handleInput(`\x1b[200~${"B".repeat(2100)}\x1b[201~`);
+  normal(editor);
+  keys(editor, "p");
+  assert.equal(editor.getExpandedText(), `${"B".repeat(2100)}\nsafe line`);
+});
+
 test("mode label fits even very narrow editor widths", () => {
   // Native Editor cannot wrap a two-cell grapheme into a one-cell terminal.
   const editor = create("");
@@ -177,6 +246,7 @@ test("wraps an existing editor factory without replacing its history behavior", 
   let start!: ExtensionHandler<SessionStartEvent>;
   modalEditor({ on(_name: string, handler: unknown) { start = handler as typeof start; } } as unknown as ExtensionAPI);
   let created!: CustomEditor;
+  const warnings: string[] = [];
   let factory: Parameters<ExtensionUIContext["setEditorComponent"]>[0] = (tui, theme, bindings) => {
     created = new CustomEditor(tui, theme, bindings);
     created.addToHistory("shared prompt");
@@ -187,6 +257,7 @@ test("wraps an existing editor factory without replacing its history behavior", 
     ui: {
       getEditorComponent: () => factory,
       setEditorComponent: (next: typeof factory) => { factory = next; },
+      notify: (message: string, level: string) => { assert.equal(level, "warning"); warnings.push(message); },
     },
   } as unknown as ExtensionContext;
   await start({ type: "session_start", reason: "startup" }, ctx);
@@ -196,6 +267,12 @@ test("wraps an existing editor factory without replacing its history behavior", 
   keys(created, "k");
   assert.equal(created.getText(), "shared prompt");
   assert.ok(created.render(80).at(-1)!.includes("NORMAL"));
+  keys(created, "i");
+  created.setText("");
+  created.handleInput(`\x1b[200~${"A".repeat(2100)}\x1b[201~`);
+  normal(created);
+  assert.doesNotThrow(() => keys(created, "yy"));
+  assert.equal(warnings.length, 1, "production factory should warn instead of throwing");
 });
 
 test("dd preserves other collapsed pastes and their expanded content", () => {
@@ -228,6 +305,39 @@ test("a native editor is created when no custom factory exists; repeated starts 
   normal(editor);
   keys(editor, "0x");
   assert.equal(editor.getText(), "ello");
+});
+
+test("history and modal composition gets a fresh factory after Pi's lifecycle UI reset", async () => {
+  let start!: ExtensionHandler<SessionStartEvent>;
+  modalEditor({ on(_name: string, handler: unknown) { start = handler as typeof start; } } as unknown as ExtensionAPI);
+  let factory: Parameters<ExtensionUIContext["setEditorComponent"]>[0];
+  const ctx = {
+    mode: "tui",
+    ui: {
+      getEditorComponent: () => factory,
+      setEditorComponent: (next: typeof factory) => { factory = next; },
+    },
+  } as unknown as ExtensionContext;
+  for (const reason of ["startup", "new", "resume", "fork", "reload"] as const) {
+    factory = undefined; // InteractiveMode.resetExtensionUI(), before session_start.
+    const snapshot = `history for ${reason}`;
+    factory = (tui, theme, bindings) => {
+      const editor = new CustomEditor(tui, theme, bindings);
+      editor.addToHistory(snapshot);
+      return editor;
+    };
+    await start({ type: "session_start", reason }, ctx);
+    const editor = factory!(tui, theme, bindings) as CustomEditor;
+    let aborted = 0;
+    editor.onEscape = () => { aborted++; };
+    normal(editor);
+    assert.equal(aborted, 0, `${reason}: Escape must not be handled twice`);
+    keys(editor, "k");
+    assert.equal(editor.getText(), snapshot);
+    assert.ok(editor.render(80).at(-1)!.includes("NORMAL"));
+    keys(editor, "0x");
+    assert.equal(editor.getText(), snapshot.slice(1), `${reason}: x must run once`);
+  }
 });
 
 test("does nothing outside TUI mode", async () => {

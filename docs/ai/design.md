@@ -1,3 +1,9 @@
+---
+summary: Small modal-editor scope, composition, and safety decisions.
+read_when:
+  - Changing key handling, paste behavior, or editor lifecycle composition.
+---
+
 # Modal editor decisions
 
 - Keep Vim key handling separate from `pi-shared-prompt-history`.
@@ -13,6 +19,14 @@
 - Movement follows native visual rows. Linewise operations use logical lines.
 - The intentionally small state machine only handles doubled `d`, `y`, `g`,
   the mode, a single linewise register, and bracketed paste forwarding.
+- Reject `yy` of collapsed-paste placeholders with a visible warning, preserving
+  the prior yank. Their IDs are mutable/reused; do not rely on private expansion
+  APIs or retain references that can silently change content.
+- Dismiss autocomplete before `gg`/`G`, clamp `a` at logical-line end, and use
+  Pi's public key parser for modifyOtherKeys printable commands.
+- Source verification and independent reviews confirm that Pi resets extension
+  UI before session replacement and reload. Preserve the existing history-first,
+  modal-last ordering; no shared-history implementation patch is needed.
 
 Validation: `npm run check` runs TypeScript checking and real-editor tests for
 modes, native movement, deletion edge cases, Unicode, history composition,

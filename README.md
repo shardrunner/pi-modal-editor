@@ -2,7 +2,8 @@
 
 Small Vim-like bindings layered onto Pi's existing prompt editor. Requires Pi
 1.1.0's `ctx.ui.getEditorComponent()` API. Starts in insert mode and shows the
-current mode in the editor's bottom border.
+current mode in the editor's bottom border. The development checkout lives at
+`/home/michaelb/Documents/repos/projects/pi-extensions/pi-modal-editor`.
 
 | Key | Normal-mode behavior |
 | --- | --- |
@@ -19,7 +20,14 @@ current mode in the editor's bottom border.
 Application shortcuts, Enter, arrow keys, and bracketed paste keep their native
 behavior. Escape closes autocomplete when entering normal mode. Unrecognized
 printable characters are ignored in normal mode. The yank register is internal,
-not the system clipboard.
+not the system clipboard. `yy` refuses lines containing collapsed paste markers
+and shows a warning, preserving the previous yank. Paste IDs are mutable and can
+be reused, so retaining a marker could paste the wrong content. Open the prompt
+with Ctrl+G first to expand that content into ordinary text.
+
+`gg`/`G` close autocomplete before moving; `j`/`k` still navigate its list.
+Escape in normal mode retains Pi's abort behavior; double Escape with an empty
+prompt can still open Pi's session tree.
 
 This intentionally is not a full Vim implementation: no counts, visual mode,
 operators, or Vim cursor clamping. `dd` uses native Delete/Backspace rather than
@@ -32,7 +40,7 @@ Add this directory as the **last** entry in `~/.pi/agent/settings.json`'s
 `packages` array:
 
 ```json
-"./local-packages/pi-modal-editor"
+"/home/michaelb/Documents/repos/projects/pi-extensions/pi-modal-editor"
 ```
 
 Run `/reload`. Keep it after packages that replace the editor, such as
