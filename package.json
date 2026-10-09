@@ -1,0 +1,23 @@
+{
+  "name": "pi-modal-editor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Small Vim-like keybindings layered onto Pi's existing prompt editor.",
+  "type": "module",
+  "pi": { "extensions": ["./index.ts"] },
+  "scripts": {
+    "test": "node --test index.test.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=1.1.0",
+    "@earendil-works/pi-tui": ">=1.1.0"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.1.0",
+    "@earendil-works/pi-tui": "1.1.0",
+    "@types/node": "^24.0.0",
+    "typescript": "~5.9.3"
+  }
+}
