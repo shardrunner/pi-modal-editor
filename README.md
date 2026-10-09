@@ -14,16 +14,17 @@ current mode in the editor's bottom border. The development checkout lives at
 | `gg`, `G` | Start of the first/last logical line in the prompt; never browse history |
 | `x` | Delete the grapheme under the cursor; never join lines |
 | `dd` | Delete the current logical line without yanking |
-| `yy` | Yank the current logical line to an internal register |
-| `p`, `P` | Paste the yanked line below/above the current line |
+| `yy` | Copy the entire expanded prompt draft to an internal register |
+| `p`, `P` | Paste the saved draft below/above the current line |
 
 Application shortcuts, Enter, arrow keys, and bracketed paste keep their native
 behavior. Escape closes autocomplete when entering normal mode. Unrecognized
 printable characters are ignored in normal mode. The yank register is internal,
-not the system clipboard. `yy` refuses lines containing collapsed paste markers
-and shows a warning, preserving the previous yank. Paste IDs are mutable and can
-be reused, so retaining a marker could paste the wrong content. Open the prompt
-with Ctrl+G first to expand that content into ordinary text.
+not the system clipboard. `yy` snapshots the entire draft through Pi's public
+`getExpandedText()` API, including the actual content of collapsed pastes. The
+saved text does not depend on mutable paste IDs, so it survives edits, submission,
+and paste-ID reuse. It does not change the draft or cursor. Pasting an empty saved
+draft is a no-op.
 
 `gg`/`G` close autocomplete before moving; `j`/`k` still navigate its list.
 Escape in normal mode retains Pi's abort behavior; double Escape with an empty

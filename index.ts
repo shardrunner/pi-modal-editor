@@ -7,11 +7,7 @@ const movement: Record<string, string> = {
 };
 
 /** Decorate the existing instance: history, callbacks, focus and app handlers stay intact. */
-export function addModalKeys(
-  editor: CustomEditor,
-  tui: TUI,
-  warn: (message: string) => void = (message) => { throw new Error(message); },
-): void {
+export function addModalKeys(editor: CustomEditor, tui: TUI): void {
   const input = editor.handleInput.bind(editor);
   const render = editor.render.bind(editor);
   let mode: "insert" | "normal" = "insert";
@@ -78,13 +74,8 @@ export function addModalKeys(
     pending = undefined;
     if (key && previous === key) {
       if (key === "d") deleteLine();
-      else if (key === "y") {
-        const line = editor.getLines()[editor.getCursor().line];
-        // Paste IDs are mutable and reused after submission. Never retain a stale reference.
-        if (/\[paste #\d+(?: (?:\+\d+ lines|\d+ chars))?\]/.test(line)) {
-          warn("Cannot yank a line containing a collapsed paste. Open it in the external editor first; the previous yank is unchanged.");
-        } else yank = line;
-      } else if (key === "g") moveToLine(0);
+      else if (key === "y") yank = editor.getExpandedText();
+      else if (key === "g") moveToLine(0);
       return;
     }
     if (key === "d" || key === "y" || key === "g") pending = key;
@@ -99,7 +90,7 @@ export function addModalKeys(
     } else if (key === "x") {
       const { line, col } = editor.getCursor();
       if (col < editor.getLines()[line].length) input("\x1b[3~");
-    } else if ((key === "p" || key === "P") && yank !== undefined) {
+    } else if ((key === "p" || key === "P") && yank) {
       const line = editor.getCursor().line;
       input(key === "p" ? "\x05" : "\x01");
       editor.insertTextAtCursor(key === "p" ? `\n${yank}` : `${yank}\n`);
@@ -132,12 +123,12 @@ export default function (pi: ExtensionAPI): void {
     const wrapped: EditorFactory = (tui, theme, bindings) => {
       const editor = current ? current(tui, theme, bindings) : new CustomEditor(tui, theme, bindings);
       // Duck typing: instanceof is unreliable across Pi's extension module boundaries.
-      for (const method of ["getCursor", "getLines", "isShowingAutocomplete", "insertTextAtCursor"] as const) {
+      for (const method of ["getCursor", "getLines", "getExpandedText", "isShowingAutocomplete", "insertTextAtCursor"] as const) {
         if (!(method in editor) || typeof (editor as unknown as Record<string, unknown>)[method] !== "function") {
           throw new Error(`Modal editor requires an editor exposing ${method}().`);
         }
       }
-      addModalKeys(editor as CustomEditor, tui, (message) => ctx.ui.notify(message, "warning"));
+      addModalKeys(editor as CustomEditor, tui);
       return editor;
     };
     wrappers.add(wrapped);

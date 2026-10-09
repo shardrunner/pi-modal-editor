@@ -16,12 +16,14 @@ read_when:
   global terminal input interception, or copy of the shared history reader.
 - `dd` does not yank. Native Delete operations preserve paste metadata and
   avoid Pi's kill ring, at the cost of character-sized native undo steps.
-- Movement follows native visual rows. Linewise operations use logical lines.
+- Movement follows native visual rows. Deletion and paste placement use logical
+  lines; `yy` copies the entire current prompt draft regardless of cursor position.
 - The intentionally small state machine only handles doubled `d`, `y`, `g`,
-  the mode, a single linewise register, and bracketed paste forwarding.
-- Reject `yy` of collapsed-paste placeholders with a visible warning, preserving
-  the prior yank. Their IDs are mutable/reused; do not rely on private expansion
-  APIs or retain references that can silently change content.
+  the mode, a single draft register, and bracketed paste forwarding.
+- Snapshot `yy` through public `getExpandedText()`. This safely supports collapsed
+  pastes without private expansion APIs, stale IDs, or rejection/warning machinery.
+  `p`/`P` insert the saved draft below/above the current line; an empty snapshot
+  is a no-op. The register is internal, not the system clipboard.
 - Dismiss autocomplete before `gg`/`G`, clamp `a` at logical-line end, and use
   Pi's public key parser for modifyOtherKeys printable commands.
 - Source verification and independent reviews confirm that Pi resets extension

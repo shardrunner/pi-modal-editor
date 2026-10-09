@@ -10,9 +10,9 @@ const theme: EditorTheme = { borderColor: (text) => text, selectList: getSelectL
 const tui = { requestRender() {}, terminal: { rows: 30, columns: 80 } } as unknown as TUI;
 const bindings = new KeybindingsManager();
 
-function create(text: string, warn?: (message: string) => void) {
+function create(text: string) {
   const editor = new CustomEditor(tui, theme, bindings);
-  addModalKeys(editor, tui, warn);
+  addModalKeys(editor, tui);
   editor.setText(text);
   editor.render(80);
   return editor;
@@ -85,24 +85,47 @@ for (const [name, text, navigation, expected, line] of [
   });
 }
 
-test("yy/p/P are linewise; dd does not replace the yank register or kill ring", () => {
-  const editor = create("saved\ndelete\nlast");
+test("yy copies the full draft; p/P insert it below/above; dd leaves both registers alone", () => {
+  const draft = "saved\ndelete\nlast";
+  const editor = create(draft);
   normal(editor);
   keys(editor, "ggyyjddp");
-  assert.equal(editor.getText(), "saved\nlast\nsaved");
+  assert.equal(editor.getText(), `saved\nlast\n${draft}`);
   assert.deepEqual(editor.getCursor(), { line: 2, col: 0 });
   keys(editor, "P");
-  assert.equal(editor.getText(), "saved\nlast\nsaved\nsaved");
+  assert.equal(editor.getText(), `saved\nlast\n${draft}\n${draft}`);
   const before = editor.getText();
   editor.handleInput("\x19"); // Ctrl+Y: native kill ring must still be empty.
   assert.equal(editor.getText(), before);
 });
 
-test("p with no yank is a no-op; an empty line can be yanked", () => {
-  const editor = create("\nlast");
+test("yy is independent of cursor position and does not change the draft or cursor", () => {
+  const draft = " first\n界🙂 middle\nlast \n";
+  const editor = create(draft);
   normal(editor);
-  keys(editor, "pggyyGp");
-  assert.equal(editor.getText(), "\nlast\n");
+  keys(editor, "ggjl");
+  const cursor = editor.getCursor();
+  assert.equal(cursor.line, 1);
+  keys(editor, "yy");
+  assert.equal(editor.getText(), draft);
+  assert.deepEqual(editor.getCursor(), cursor);
+  editor.setText("target");
+  keys(editor, "P");
+  assert.equal(editor.getText(), `${draft}\ntarget`);
+  assert.deepEqual(editor.getCursor(), { line: 0, col: 0 });
+});
+
+test("p/P with no copied draft or an empty copied draft are no-ops", () => {
+  const editor = create("previous");
+  normal(editor);
+  keys(editor, "pP");
+  assert.equal(editor.getText(), "previous");
+  keys(editor, "yy");
+  editor.setText("");
+  keys(editor, "yy");
+  editor.setText("target");
+  keys(editor, "pP");
+  assert.equal(editor.getText(), "target");
 });
 
 test("x deletes a grapheme, not a line break", () => {
@@ -210,24 +233,36 @@ test("gg/G dismiss autocomplete; j/k retain native list navigation", async () =>
   assert.deepEqual(editor.getCursor(), { line: 1, col: 0 });
 });
 
-test("yy rejects collapsed paste markers and preserves the previous self-contained yank", () => {
-  const warnings: string[] = [];
-  const editor = create("safe line", (message) => { warnings.push(message); });
+test("yy expands the entire draft and survives submission and paste-ID reuse", () => {
+  const editor = create("prefix\n");
+  const oldPaste = `${"A".repeat(2100)}\ntail A`;
+  const newPaste = "B".repeat(2100);
+  editor.handleInput(`\x1b[200~${oldPaste}\x1b[201~`);
+  assert.ok(editor.getText().includes("[paste #"));
+  const snapshot = `prefix\n${oldPaste}`;
   normal(editor);
   keys(editor, "yyi");
-  editor.setText("");
-  editor.handleInput(`\x1b[200~${"A".repeat(2100)}\x1b[201~`);
-  normal(editor);
-  keys(editor, "yy");
-  assert.equal(warnings.length, 1);
-  assert.match(warnings[0], /collapsed paste/);
   editor.onSubmit = () => {};
-  keys(editor, "i");
   editor.handleInput("\r"); // Native submission clears and reuses paste IDs.
-  editor.handleInput(`\x1b[200~${"B".repeat(2100)}\x1b[201~`);
+  editor.handleInput(`\x1b[200~${newPaste}\x1b[201~`);
   normal(editor);
   keys(editor, "p");
-  assert.equal(editor.getExpandedText(), `${"B".repeat(2100)}\nsafe line`);
+  assert.equal(editor.getExpandedText(), `${newPaste}\n${snapshot}`);
+});
+
+test("the copied draft survives native paste-marker deletion and renumbering", () => {
+  const editor = create("");
+  const first = "A".repeat(2100);
+  const second = "B".repeat(2100);
+  editor.handleInput(`\x1b[200~${first}\x1b[201~`);
+  editor.handleInput("\n");
+  editor.handleInput(`\x1b[200~${second}\x1b[201~`);
+  normal(editor);
+  keys(editor, "yygg$i");
+  editor.handleInput("\x7f"); // Deletes the first marker and renumbers the second.
+  normal(editor);
+  keys(editor, "Gp");
+  assert.equal(editor.getExpandedText(), `\n${second}\n${first}\n${second}`);
 });
 
 test("mode label fits even very narrow editor widths", () => {
@@ -246,7 +281,6 @@ test("wraps an existing editor factory without replacing its history behavior", 
   let start!: ExtensionHandler<SessionStartEvent>;
   modalEditor({ on(_name: string, handler: unknown) { start = handler as typeof start; } } as unknown as ExtensionAPI);
   let created!: CustomEditor;
-  const warnings: string[] = [];
   let factory: Parameters<ExtensionUIContext["setEditorComponent"]>[0] = (tui, theme, bindings) => {
     created = new CustomEditor(tui, theme, bindings);
     created.addToHistory("shared prompt");
@@ -257,7 +291,6 @@ test("wraps an existing editor factory without replacing its history behavior", 
     ui: {
       getEditorComponent: () => factory,
       setEditorComponent: (next: typeof factory) => { factory = next; },
-      notify: (message: string, level: string) => { assert.equal(level, "warning"); warnings.push(message); },
     },
   } as unknown as ExtensionContext;
   await start({ type: "session_start", reason: "startup" }, ctx);
@@ -272,7 +305,9 @@ test("wraps an existing editor factory without replacing its history behavior", 
   created.handleInput(`\x1b[200~${"A".repeat(2100)}\x1b[201~`);
   normal(created);
   assert.doesNotThrow(() => keys(created, "yy"));
-  assert.equal(warnings.length, 1, "production factory should warn instead of throwing");
+  created.setText("target");
+  keys(created, "P");
+  assert.equal(created.getExpandedText(), `${"A".repeat(2100)}\ntarget`);
 });
 
 test("dd preserves other collapsed pastes and their expanded content", () => {
