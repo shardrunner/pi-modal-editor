@@ -2,8 +2,8 @@
 
 Small Vim-like bindings layered onto Pi's existing prompt editor. Requires Pi
 1.1.0's `ctx.ui.getEditorComponent()` API. Starts in insert mode and shows the
-current mode in the editor's bottom border. The focused cursor is an underline
-in insert mode and a block in normal mode. The development checkout lives at
+current mode in the editor's bottom border. The focused cursor is a vertical
+I-beam in insert mode and a block in normal mode. The development checkout lives at
 `/home/michaelb/Documents/repos/projects/pi-extensions/pi-modal-editor`.
 
 | Key | Normal-mode behavior |
@@ -15,32 +15,46 @@ in insert mode and a block in normal mode. The development checkout lives at
 | `gg`, `G` | Start of the first/last logical line in the prompt; never browse history |
 | `x` | Delete the grapheme under the cursor; never join lines |
 | `dd` | Delete the current logical line without yanking |
-| `yy` | Copy the entire expanded prompt draft to the system clipboard and save it for `p`/`P` |
-| `p`, `P` | Paste the saved draft below/above the current line |
+| `yy` | Copy the entire expanded prompt draft to the standard system clipboard |
+| `p`, `P` | Read the current system clipboard and paste below/above the current line |
 
 Application shortcuts, Enter, arrow keys, and bracketed paste keep their native
 behavior. Escape closes autocomplete when entering normal mode. Unrecognized
 printable characters are ignored in normal mode. `yy` writes to the standard
 system clipboard through Pi's public `copyToClipboard()` API (native platform
 backends, with terminal OSC 52 support for remote/headless sessions). Clipboard
-failures produce an error notification without losing the internal snapshot used
-by `p`/`P`. The status line shows `Copying draft to clipboard…`, then
-`Copied draft to clipboard` only after success (or `Clipboard cleared` for an
-empty draft). A failed copy shows `Clipboard copy failed` rather than leaving a
-stale success message. This status remains until the next copy or UI reset.
-Writes are serialized so repeated `yy` commands finish in order.
-On Linux, clipboard access may require `wl-copy` (Wayland) or `xclip`/`xsel` (X11);
-OSC 52 requires terminal support and permission.
+failures produce an error notification. The status line shows
+`Copied draft to clipboard` after success (or `Clipboard cleared` for an empty
+draft); there is no copying-progress message. A failed copy shows
+`Clipboard copy failed`. The latest result remains until another clipboard result
+or UI reset.
+
+`p`/`P` always read fresh clipboard text, including text copied in another app.
+There is no private yank register or fallback to old copied text. Clipboard
+operations are serialized so `yy` followed by `p` reads the completed copy.
+An empty clipboard is a no-op. A paste is cancelled if input, focus, cursor, or
+text changes while the read is pending; submission and session shutdown also
+cancel pending pastes.
+
+On Linux, copying/pasting may require `wl-copy`/`wl-paste` (Wayland) or
+`xclip`/`xsel` (X11). Wayland reads never fall back to potentially stale X11 data.
+macOS/Windows use native clipboard readers with platform-command fallbacks;
+Termux and headless WSL also have command readers. OSC 52 copying requires terminal
+support and permission. Reading the client clipboard over SSH/headless terminals
+is not supported: use the terminal's paste shortcut if no local clipboard exists.
 
 `yy` snapshots the entire draft through Pi's public
 `getExpandedText()` API, including the actual content of collapsed pastes. The
-saved text does not depend on mutable paste IDs, so it survives edits, submission,
-and paste-ID reuse. It does not change the draft or cursor. Pasting an empty saved
-draft is a no-op; `yy` on an empty draft also clears the clipboard.
+clipboard text does not depend on mutable paste IDs, so draft edits, submission,
+and paste-ID reuse do not alter it. `yy` does not change the draft or cursor;
+an empty draft clears the clipboard.
 
-Cursor styling changes only Pi's focused software cursor and preserves its IME
-position marker. It does not change the terminal-wide hardware cursor shape or
-visibility, so dialogs and other terminal applications keep their native behavior.
+The hardware cursor uses standard DECSCUSR shapes (steady I-beam/block), with
+Pi's existing cursor marker preserving positioning and IME support. Terminal
+support for cursor shapes is required; the mode label remains available either
+way. On focus loss or session shutdown, the extension requests the terminal's
+default cursor shape and restores Pi's previous hardware-cursor visibility.
+Existing custom-editor focus accessors are preserved.
 
 `gg`/`G` close autocomplete before moving; `j`/`k` still navigate its list.
 Escape in normal mode retains Pi's abort behavior; double Escape with an empty
@@ -48,7 +62,7 @@ prompt can still open Pi's session tree.
 
 This intentionally is not a full Vim implementation: no counts, visual mode,
 operators, or Vim cursor clamping. `dd` uses native Delete/Backspace rather than
-kill-line, so it leaves both the internal yank register and Pi's kill ring alone.
+kill-line, so it leaves both the system clipboard and Pi's kill ring alone.
 Native undo restores these deletions in character/grapheme-sized steps.
 
 ## Installation and composition

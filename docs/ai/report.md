@@ -6,8 +6,8 @@ read_when:
 
 # Pi prompt editor report
 
-Status: completed and tested. Includes system-clipboard yanks and mode-specific
-software cursor styling.
+Status: completed and tested. Includes standard-clipboard copies/pastes,
+result-only copy status messages, and mode-specific hardware cursor shapes.
 
 ## Repository and runtime setup
 
@@ -39,29 +39,35 @@ history list. That extra feature was not removed during the final review.
 | `gg`, `G` | First/last prompt line, dismissing autocomplete first |
 | `x` | Delete a grapheme without joining lines |
 | `dd` | Delete the current logical line without saving deleted text |
-| `yy` | Copy the entire expanded prompt draft to the standard system clipboard and an internal register |
-| `p`, `P` | Insert the saved draft below/above the current line |
+| `yy` | Copy the entire expanded prompt draft to the standard system clipboard |
+| `p`, `P` | Read the current standard clipboard and insert below/above the current line |
 
 Starts in insert mode, with a mode indicator in the bottom border. The focused
-software cursor is an underline in insert mode and an inverse block in normal
-mode; the IME position marker is preserved.
+hardware cursor is a steady vertical I-beam in insert mode and a steady block in
+normal mode; the IME position marker is preserved. Focus loss/shutdown requests
+the terminal-default cursor shape and restores prior hardware-cursor visibility.
 
 ### Whole-draft `yy` simplification
 
 `yy` now uses public `getExpandedText()` and captures a self-contained text
 snapshot, independent of cursor position. It includes actual collapsed-paste
 content, preserving draft whitespace and leaving the current draft/cursor alone.
-The snapshot is saved internally for `p`/`P` and copied to the system clipboard
-through Pi's public `copyToClipboard()` API. Asynchronous writes are serialized;
-failures produce a Pi UI error notification without losing the saved draft.
-The status line reports progress, successful copies, empty-draft clipboard clearing,
-and failures. Success appears only after the copy completes, and a later failure
-replaces the previous success message.
+The snapshot is copied through Pi's public `copyToClipboard()` API. `p`/`P` now
+read fresh system-clipboard text, including changes made in other applications.
+The old internal register has been removed; clipboard failures are visible and
+never fall back to stale text. Copies/reads are serialized, and delayed pastes are
+cancelled after input, focus, cursor, or draft changes and during session shutdown.
+
+The status line reports successful copies, empty-draft clipboard clearing, and
+failures, with no copying-progress message. Success appears only after the copy
+completes, and a later failure replaces the previous success message.
 
 This supersedes the earlier line-yank rejection policy: there is no longer a
 paste-marker regex, warning callback, or restriction on copying pasted content.
-Later submission, edits, or paste-ID deletion/reuse cannot alter the saved text.
-Copying an empty draft clears the register and clipboard; pasting it is a no-op.
+Later submission, edits, or paste-ID deletion/reuse cannot alter the clipboard
+snapshot. Copying an empty draft clears the clipboard; pasting empty/no text is
+a no-op. Clipboard reads use native/platform readers; Wayland never falls back
+to stale X11 data. Remote terminal clipboard reads are not supported.
 
 ## Independent reviews and shared-history decision
 
@@ -93,21 +99,25 @@ being run, then the production correction was validated.
 
 ## Validation
 
-- Modal: TypeScript check and all **40 tests** pass.
-- Clipboard regressions use an injected copier, not the desktop clipboard. They
-  cover expanded Unicode/whitespace/empty snapshots, ordering of slow writes,
-  recovery after failure, retained internal paste behavior, UI notifications, and
-  status-line feedback without premature or stale success messages.
-- Cursor regressions cover mode transitions, Unicode graphemes, line ends, IME
-  markers, unrelated inverse styling, cached render output, and narrow widths.
-  No live terminal visual check or desktop clipboard round trip was performed.
+- Modal: TypeScript check and all **64 tests** pass.
+- Clipboard regressions inject readers/writers, not the desktop clipboard. They
+  cover Unicode/whitespace/empty text, external clipboard changes, copy/read
+  ordering, failure recovery, stale-paste cancellation (including external draft
+  resets before queued reads begin), and result-only statuses.
+  Platform-reader tests verify Wayland, X11 CLIPBOARD, native macOS/Windows,
+  platform-command fallbacks, Termux, WSL, and explicit headless read errors.
+- Cursor regressions cover shapes, Unicode/line ends, IME markers, unrelated
+  inverse styling, cached render arrays, focus accessors, and shutdown cleanup.
+  Real regular/fullscreen TUIs with fake terminals verify visible hardware cursors
+  and overlay focus restoration. No live terminal visual check or desktop clipboard
+  round trip was performed; local `wl-copy` and `wl-paste` are available.
 - Shared history: TypeScript check and all **5 tests** pass; production code is
   unchanged.
 - Real-package integration passes across startup/new/resume/fork/reload, checking
   fresh history and the updated whole-draft `yy`, including collapsed pastes.
 - New regressions cover cursor independence, multiline/Unicode/whitespace content,
   paste-ID reuse after submission, marker deletion/renumbering, empty snapshots,
-  and `dd` preserving the saved draft and native kill ring.
+  and `dd` preserving the clipboard and native kill ring.
 
 ## Deliberate limits and next action
 
