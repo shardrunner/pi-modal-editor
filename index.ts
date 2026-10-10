@@ -1,19 +1,36 @@
-import { CustomEditor, type ExtensionAPI, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import { decodeKittyPrintable, isKeyRelease, matchesKey, parseKey, truncateToWidth, visibleWidth, type TUI } from "@earendil-works/pi-tui";
+import { copyToClipboard, CustomEditor, type ExtensionAPI, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import { CURSOR_MARKER, decodeKittyPrintable, isKeyRelease, matchesKey, parseKey, truncateToWidth, visibleWidth, type TUI } from "@earendil-works/pi-tui";
 
 type EditorFactory = NonNullable<Parameters<ExtensionUIContext["setEditorComponent"]>[0]>;
 const movement: Record<string, string> = {
   h: "\x1b[D", j: "\x1b[B", k: "\x1b[A", l: "\x1b[C", "0": "\x01", $: "\x05",
 };
 
+interface ModalEditorOptions {
+  copyToClipboard?: (text: string) => Promise<void>;
+  onClipboardError?: (message: string) => void;
+}
+
 /** Decorate the existing instance: history, callbacks, focus and app handlers stay intact. */
-export function addModalKeys(editor: CustomEditor, tui: TUI): void {
+export function addModalKeys(editor: CustomEditor, tui: TUI, options: ModalEditorOptions = {}): void {
   const input = editor.handleInput.bind(editor);
   const render = editor.render.bind(editor);
   let mode: "insert" | "normal" = "insert";
   let pending: string | undefined;
   let yank: string | undefined;
   let pasting = false;
+  const copy = options.copyToClipboard ?? copyToClipboard;
+  const reportClipboardError = options.onClipboardError ?? console.error;
+  let clipboardWrite = Promise.resolve();
+
+  function copyDraft(): void {
+    const text = editor.getExpandedText();
+    yank = text;
+    // Snapshot immediately, but serialize async writes so the latest yy wins.
+    clipboardWrite = clipboardWrite.then(() => copy(text)).catch((error: unknown) => {
+      reportClipboardError(`Failed to copy draft: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  }
 
   // Arrow movement honors the native visual wrapping. Stop before crossing into history.
   function moveToLine(line: number): void {
@@ -76,7 +93,7 @@ export function addModalKeys(editor: CustomEditor, tui: TUI): void {
     pending = undefined;
     if (key && previous === key) {
       if (key === "d") deleteLine();
-      else if (key === "y") yank = editor.getExpandedText();
+      else if (key === "y") copyDraft();
       else if (key === "g") moveToLine(0);
       return;
     }
@@ -106,7 +123,11 @@ export function addModalKeys(editor: CustomEditor, tui: TUI): void {
   };
 
   editor.render = (width) => {
-    const lines = render(width);
+    // Pi draws a software cursor. Only restyle the focused cursor, not other
+    // inverse text; retain the marker for hardware-cursor/IME positioning.
+    const lines = render(width).map((line) => mode === "insert"
+      ? line.replace(`${CURSOR_MARKER}\x1b[7m`, `${CURSOR_MARKER}\x1b[4m`)
+      : line);
     if (lines.length > 0) {
       const label = truncateToWidth(` ${mode.toUpperCase()} `, width, "");
       const last = lines.length - 1;
@@ -116,7 +137,7 @@ export function addModalKeys(editor: CustomEditor, tui: TUI): void {
   };
 }
 
-export default function (pi: ExtensionAPI): void {
+export default function (pi: ExtensionAPI, options: ModalEditorOptions = {}): void {
   const wrappers = new WeakSet<EditorFactory>();
   pi.on("session_start", (_event, ctx) => {
     if (ctx.mode !== "tui") return;
@@ -130,7 +151,10 @@ export default function (pi: ExtensionAPI): void {
           throw new Error(`Modal editor requires an editor exposing ${method}().`);
         }
       }
-      addModalKeys(editor as CustomEditor, tui);
+      addModalKeys(editor as CustomEditor, tui, {
+        ...options,
+        onClipboardError: options.onClipboardError ?? ((message) => ctx.ui.notify(message, "error")),
+      });
       return editor;
     };
     wrappers.add(wrapped);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { CustomEditor, getSelectListTheme, initTheme, type ExtensionAPI, type ExtensionContext, type ExtensionHandler, type ExtensionUIContext, type SessionStartEvent } from "@earendil-works/pi-coding-agent";
-import { type EditorTheme, type TUI, visibleWidth } from "@earendil-works/pi-tui";
+import { CURSOR_MARKER, type EditorTheme, type TUI, visibleWidth } from "@earendil-works/pi-tui";
 import { KeybindingsManager } from "./node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 import modalEditor, { addModalKeys } from "./index.ts";
 
@@ -10,9 +10,11 @@ const theme: EditorTheme = { borderColor: (text) => text, selectList: getSelectL
 const tui = { requestRender() {}, terminal: { rows: 30, columns: 80 } } as unknown as TUI;
 const bindings = new KeybindingsManager();
 
-function create(text: string) {
+const noClipboard = { copyToClipboard: async (_text: string) => {} };
+
+function create(text: string, options: Parameters<typeof addModalKeys>[2] = noClipboard) {
   const editor = new CustomEditor(tui, theme, bindings);
-  addModalKeys(editor, tui);
+  addModalKeys(editor, tui, options);
   editor.setText(text);
   editor.render(80);
   return editor;
@@ -296,9 +298,105 @@ test("the copied draft survives native paste-marker deletion and renumbering", (
   assert.equal(editor.getExpandedText(), `\n${second}\n${first}\n${second}`);
 });
 
+test("yy writes expanded Unicode, whitespace, and empty drafts to the system clipboard", async () => {
+  const copies: string[] = [];
+  const editor = create(" first\n界🙂 \n", {
+    copyToClipboard: async (text) => { copies.push(text); },
+  });
+  const paste = "A".repeat(2100);
+  editor.handleInput(`\x1b[200~${paste}\x1b[201~`);
+  const draft = editor.getExpandedText();
+  normal(editor);
+  const cursor = editor.getCursor();
+  keys(editor, "y");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(copies, []);
+  keys(editor, "y");
+  assert.equal(editor.getExpandedText(), draft);
+  assert.deepEqual(editor.getCursor(), cursor);
+  editor.setText("");
+  keys(editor, "yy");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(copies, [draft, ""]);
+});
+
+test("clipboard failures are reported without losing the saved draft or blocking later copies", async () => {
+  const errors: string[] = [];
+  const copies: string[] = [];
+  const editor = create("saved", {
+    copyToClipboard: async (text) => {
+      copies.push(text);
+      if (text === "saved") throw new Error("Clipboard unavailable: install wl-copy");
+    },
+    onClipboardError: (message) => { errors.push(message); },
+  });
+  normal(editor);
+  keys(editor, "yy");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(errors, ["Failed to copy draft: Clipboard unavailable: install wl-copy"]);
+  editor.setText("target");
+  keys(editor, "Pyy");
+  assert.equal(editor.getText(), "saved\ntarget");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(copies, ["saved", "saved\ntarget"]);
+});
+
+test("clipboard writes finish in command order even when the first write is slow", async () => {
+  const copies: string[] = [];
+  let finish!: () => void;
+  const wait = new Promise<void>((resolve) => { finish = resolve; });
+  const editor = create("first", {
+    copyToClipboard: async (text) => {
+      if (text === "first") await wait;
+      copies.push(text);
+    },
+  });
+  normal(editor);
+  keys(editor, "yy");
+  editor.setText("second");
+  keys(editor, "yy");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(copies, []);
+  finish();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(copies, ["first", "second"]);
+});
+
+test("focused cursor is an underline in insert mode and a block in normal mode", () => {
+  const editor = create("界🙂é");
+  editor.focused = true;
+  for (const navigation of ["gg", "l", "l", "$"]) {
+    normal(editor);
+    keys(editor, navigation);
+    const block = editor.render(80);
+    assert.ok(block.some((line) => line.includes(`${CURSOR_MARKER}\x1b[7m`)));
+    keys(editor, "i");
+    const underline = editor.render(80);
+    assert.ok(underline.some((line) => line.includes(`${CURSOR_MARKER}\x1b[4m`)));
+    assert.ok(!underline.some((line) => line.includes(`${CURSOR_MARKER}\x1b[7m`)));
+    assert.deepEqual(underline.map((line) => line.replaceAll("\x1b[4m", "\x1b[7m")).slice(0, -1), block.slice(0, -1));
+  }
+  normal(editor);
+  keys(editor, "a");
+  assert.ok(editor.render(80).some((line) => line.includes(`${CURSOR_MARKER}\x1b[4m`)));
+});
+
+test("cursor styling preserves unrelated inverse text and cached render output", () => {
+  const editor = new CustomEditor(tui, theme, bindings);
+  const original = [`\x1b[7mselected\x1b[0m ${CURSOR_MARKER}\x1b[7m界\x1b[0m`, "────────────"];
+  const snapshot = [...original];
+  editor.render = () => original;
+  addModalKeys(editor, tui, noClipboard);
+  assert.equal(editor.render(40)[0], `\x1b[7mselected\x1b[0m ${CURSOR_MARKER}\x1b[4m界\x1b[0m`);
+  normal(editor);
+  assert.equal(editor.render(40)[0], snapshot[0]);
+  assert.deepEqual(original, snapshot);
+});
+
 test("mode label fits even very narrow editor widths", () => {
   // Native Editor cannot wrap a two-cell grapheme into a one-cell terminal.
   const editor = create("");
+  editor.focused = true;
   for (const mode of ["insert", "normal"]) {
     for (const width of [1, 4, 8, 20, 80]) {
       const border = editor.render(width).at(-1)!;
@@ -310,7 +408,7 @@ test("mode label fits even very narrow editor widths", () => {
 
 test("wraps an existing editor factory without replacing its history behavior", async () => {
   let start!: ExtensionHandler<SessionStartEvent>;
-  modalEditor({ on(_name: string, handler: unknown) { start = handler as typeof start; } } as unknown as ExtensionAPI);
+  modalEditor({ on(_name: string, handler: unknown) { start = handler as typeof start; } } as unknown as ExtensionAPI, noClipboard);
   let created!: CustomEditor;
   let factory: Parameters<ExtensionUIContext["setEditorComponent"]>[0] = (tui, theme, bindings) => {
     created = new CustomEditor(tui, theme, bindings);
@@ -353,7 +451,7 @@ test("dd preserves other collapsed pastes and their expanded content", () => {
 
 test("a native editor is created when no custom factory exists; repeated starts do not double-wrap", async () => {
   let start!: ExtensionHandler<SessionStartEvent>;
-  modalEditor({ on(_name: string, handler: unknown) { start = handler as typeof start; } } as unknown as ExtensionAPI);
+  modalEditor({ on(_name: string, handler: unknown) { start = handler as typeof start; } } as unknown as ExtensionAPI, noClipboard);
   let factory: Parameters<ExtensionUIContext["setEditorComponent"]>[0];
   let installations = 0;
   const ctx = {
@@ -375,7 +473,7 @@ test("a native editor is created when no custom factory exists; repeated starts 
 
 test("history and modal composition gets a fresh factory after Pi's lifecycle UI reset", async () => {
   let start!: ExtensionHandler<SessionStartEvent>;
-  modalEditor({ on(_name: string, handler: unknown) { start = handler as typeof start; } } as unknown as ExtensionAPI);
+  modalEditor({ on(_name: string, handler: unknown) { start = handler as typeof start; } } as unknown as ExtensionAPI, noClipboard);
   let factory: Parameters<ExtensionUIContext["setEditorComponent"]>[0];
   const ctx = {
     mode: "tui",
@@ -406,9 +504,35 @@ test("history and modal composition gets a fresh factory after Pi's lifecycle UI
   }
 });
 
+test("extension reports clipboard failures through Pi's UI", async () => {
+  let start!: ExtensionHandler<SessionStartEvent>;
+  modalEditor({ on(_name: string, handler: unknown) { start = handler as typeof start; } } as unknown as ExtensionAPI, {
+    copyToClipboard: async () => { throw new Error("Clipboard unavailable"); },
+  });
+  let factory: Parameters<ExtensionUIContext["setEditorComponent"]>[0];
+  const notifications: [string, string | undefined][] = [];
+  const ctx = {
+    mode: "tui",
+    ui: {
+      getEditorComponent: () => factory,
+      setEditorComponent: (next: typeof factory) => { factory = next; },
+      notify: (message: string, type?: string) => { notifications.push([message, type]); },
+    },
+  } as unknown as ExtensionContext;
+  await start({ type: "session_start", reason: "startup" }, ctx);
+  const editor = factory!(tui, theme, bindings) as CustomEditor;
+  editor.setText("draft");
+  normal(editor);
+  keys(editor, "yy");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(notifications, [["Failed to copy draft: Clipboard unavailable", "error"]]);
+  keys(editor, "p");
+  assert.equal(editor.getText(), "draft\ndraft");
+});
+
 test("does nothing outside TUI mode", async () => {
   let start!: ExtensionHandler<SessionStartEvent>;
-  modalEditor({ on(_name: string, handler: unknown) { start = handler as typeof start; } } as unknown as ExtensionAPI);
+  modalEditor({ on(_name: string, handler: unknown) { start = handler as typeof start; } } as unknown as ExtensionAPI, noClipboard);
   for (const mode of ["rpc", "print", "json"] as const) {
     await start({ type: "session_start", reason: "startup" }, { mode } as ExtensionContext);
   }
