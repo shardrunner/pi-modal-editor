@@ -9,12 +9,11 @@ read_when:
 - Keep Vim key handling separate from `pi-shared-prompt-history`. Shared history
   records prompts and captures a fixed `/history` snapshot, but never owns the
   editor or seeds native Up/Down history. Picker selection only replaces the draft.
-- Pi 1.1.0 exposes `getEditorComponent()`: capture the existing factory and
-  decorate the instance it creates, retaining callbacks, app actions, focus,
-  history, mouse handling, and paste expansion.
-- Local auto-discovered extensions load before packages. Register this after
-  other editor-owning packages, not as an auto-discovered extension. Shared
-  history is not editor-owning, so its relative order with modal does not matter.
+- Install a native `CustomEditor` via `setEditorComponent()` and decorate that
+  instance, retaining callbacks, app actions, focus, history, mouse handling, and
+  paste expansion. No factory composition: no installed package owns the editor
+  (shared history is command-only), so load order does not matter. Another
+  editor-replacing package would conflict; the last installer wins.
 - Use native cursor/deletion/insertion APIs only. No private editor state,
   global terminal input interception, or copy of the shared history reader.
 - `dd` does not yank. Native Delete operations preserve paste metadata and
@@ -66,9 +65,8 @@ read_when:
   Pi's public key parser for Kitty and modifyOtherKeys key identity. Preserve
   Shift on printable Kitty commands and forward parsed control keys to native
   handling rather than interpreting them through the printable decoder.
-- Pi resets extension UI before session replacement and reload. Keep generic
-  factory composition for other editor-owning packages; shared history no longer
-  provides a factory. Both-order tests use the actual packages and Pi 1.1.0 loader.
+- Pi resets extension UI before session replacement and reload; every
+  `session_start` installs a fresh factory. Both-order tests use the actual packages and Pi 1.1.0 loader.
   Their synthetic native-history setup does not prove the host populates history
   correctly on actual lifecycle transitions. Live Pi 1.1.0 checks reproduce native
   history loss after resume/fork/reload and preloaded new sessions, including with
@@ -82,7 +80,7 @@ read_when:
   terminal input buffer separates those packets in normal use.
 
 Validation: `npm run check` runs TypeScript checking and real-editor tests for
-modes, native movement, deletion edge cases, Unicode, history composition,
+modes, native movement, deletion edge cases, Unicode, shared-history independence,
 pasting, application callbacks, Kitty keys, narrow mode labels, clipboard
 snapshots/operation ordering/failures, Linux clipboard readers, stale-paste
 cancellation, result-only status messages, hardware cursor shapes, regular and

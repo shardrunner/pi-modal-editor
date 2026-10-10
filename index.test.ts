@@ -866,7 +866,7 @@ test("mode label fits even very narrow editor widths", () => {
 });
 
 type Factory = Parameters<ExtensionUIContext["setEditorComponent"]>[0];
-/** Load the extension into a fake Pi whose UI stores the installed editor factory. */
+/** Load the extension into a fake Pi whose UI records the installed editor factory. */
 function loadExtension(options: Parameters<typeof modalEditor>[1] = noClipboard, ui: Record<string, unknown> = {}) {
   const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
   modalEditor({
@@ -874,7 +874,6 @@ function loadExtension(options: Parameters<typeof modalEditor>[1] = noClipboard,
   } as unknown as ExtensionAPI, options);
   const pi: { factory: Factory; installations: number } = { factory: undefined, installations: 0 };
   const ctx = { mode: "tui", ui: {
-    getEditorComponent: () => pi.factory,
     setEditorComponent: (next: Factory) => { pi.factory = next; pi.installations++; },
     ...ui,
   } } as unknown as ExtensionContext;
@@ -884,31 +883,6 @@ function loadExtension(options: Parameters<typeof modalEditor>[1] = noClipboard,
     editor: (terminal = tui) => pi.factory!(terminal, theme, bindings) as CustomEditor,
   });
 }
-
-test("wraps an existing editor factory without replacing its history behavior", async () => {
-  const pi = loadExtension();
-  let created!: CustomEditor;
-  pi.factory = (tui, theme, bindings) => {
-    created = new CustomEditor(tui, theme, bindings);
-    created.addToHistory("custom-factory prompt");
-    return created;
-  };
-  await pi.start();
-  assert.equal(pi.editor(), created);
-  normal(created);
-  keys(created, "k");
-  assert.equal(created.getText(), "custom-factory prompt");
-  assert.ok(created.render(80).at(-1)!.includes("NORMAL"));
-  keys(created, "i");
-  created.setText("");
-  created.handleInput(`\x1b[200~${"A".repeat(2100)}\x1b[201~`);
-  normal(created);
-  assert.doesNotThrow(() => keys(created, "yy"));
-  created.setText("target");
-  keys(created, "P");
-  await flush();
-  assert.equal(created.getExpandedText(), `${"A".repeat(2100)}\ntarget`);
-});
 
 test("dd preserves other collapsed pastes and their expanded content", () => {
   const editor = create("delete\n");
@@ -920,42 +894,23 @@ test("dd preserves other collapsed pastes and their expanded content", () => {
   assert.equal(editor.getExpandedText(), pasted);
 });
 
-test("a native editor is created when no custom factory exists; repeated starts do not double-wrap", async () => {
-  const pi = loadExtension();
-  await pi.start("startup");
-  await pi.start("new");
-  assert.equal(pi.installations, 1);
-  const editor = pi.editor();
-  editor.setText("hello");
-  normal(editor);
-  keys(editor, "0x");
-  assert.equal(editor.getText(), "ello");
-});
-
-test("generic custom-factory composition gets a fresh factory after Pi's lifecycle UI reset", async () => {
+test("each TUI session start installs one native editor with modal keys", async () => {
   const pi = loadExtension();
   for (const reason of ["startup", "new", "resume", "fork", "reload"]) {
-    // InteractiveMode.resetExtensionUI() clears the factory before session_start.
-    const snapshot = `history for ${reason}`;
-    pi.factory = (tui, theme, bindings) => {
-      const editor = new CustomEditor(tui, theme, bindings);
-      editor.addToHistory(snapshot);
-      return editor;
-    };
     await pi.start(reason);
     const editor = pi.editor();
+    assert.ok(editor instanceof CustomEditor);
+    editor.setText("hello");
     let aborted = 0;
     editor.onEscape = () => { aborted++; };
     normal(editor);
     assert.equal(aborted, 0, `${reason}: Escape must not be handled twice`);
-    keys(editor, "k");
-    assert.equal(editor.getText(), snapshot);
     assert.ok(editor.render(80).at(-1)!.includes("NORMAL"));
     keys(editor, "0x");
-    assert.equal(editor.getText(), snapshot.slice(1), `${reason}: x must run once`);
+    assert.equal(editor.getText(), "ello", `${reason}: x must run once`);
   }
+  assert.equal(pi.installations, 5);
 });
-
 test("extension reports clipboard results through Pi's status line and UI", async () => {
   let fail = true;
   const notifications: [string, string | undefined][] = [];

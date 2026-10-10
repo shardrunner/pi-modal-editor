@@ -1,11 +1,10 @@
-import { copyToClipboard, CustomEditor, type ExtensionAPI, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import { copyToClipboard, CustomEditor, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { CURSOR_MARKER, decodeKittyPrintable, isKeyRelease, matchesKey, parseKey, truncateToWidth, visibleWidth, type TUI } from "@earendil-works/pi-tui";
 
 import { readSystemClipboard } from "./clipboard.ts";
 import { useModeCursor } from "./cursor.ts";
 import { moveWord } from "./word-motions.ts";
 
-type EditorFactory = NonNullable<Parameters<ExtensionUIContext["setEditorComponent"]>[0]>;
 const movement: Record<string, string> = {
   h: "\x1b[D", j: "\x1b[B", k: "\x1b[A", l: "\x1b[C", "0": "\x01", $: "\x05",
 };
@@ -212,30 +211,20 @@ export function addModalKeys(editor: CustomEditor, tui: TUI, options: ModalEdito
 }
 
 export default function (pi: ExtensionAPI, options: ModalEditorOptions = {}): void {
-  const wrappers = new WeakSet<EditorFactory>();
   let dispose: (() => void) | undefined;
   pi.on("session_shutdown", () => { dispose?.(); dispose = undefined; });
   pi.on("session_start", (_event, ctx) => {
     if (ctx.mode !== "tui") return;
-    const current = ctx.ui.getEditorComponent();
-    if (current && wrappers.has(current)) return;
-    const wrapped: EditorFactory = (tui, theme, bindings) => {
-      const editor = current ? current(tui, theme, bindings) : new CustomEditor(tui, theme, bindings);
-      // Duck typing: instanceof is unreliable across Pi's extension module boundaries.
-      for (const method of ["getCursor", "getLines", "getExpandedText", "isShowingAutocomplete", "insertTextAtCursor"] as const) {
-        if (!(method in editor) || typeof (editor as unknown as Record<string, unknown>)[method] !== "function") {
-          throw new Error(`Modal editor requires an editor exposing ${method}().`);
-        }
-      }
+    // Replaces Pi's editor outright; no other installed package owns the editor.
+    ctx.ui.setEditorComponent((tui, theme, bindings) => {
+      const editor = new CustomEditor(tui, theme, bindings);
       dispose?.();
-      dispose = addModalKeys(editor as CustomEditor, tui, {
+      dispose = addModalKeys(editor, tui, {
         ...options,
         onClipboardError: options.onClipboardError ?? ((message) => ctx.ui.notify(message, "error")),
         onClipboardStatus: options.onClipboardStatus ?? ((message) => ctx.ui.setStatus("modal-editor-clipboard", message)),
       });
       return editor;
-    };
-    wrappers.add(wrapped);
-    ctx.ui.setEditorComponent(wrapped);
+    });
   });
 }

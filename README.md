@@ -1,7 +1,6 @@
 # Pi modal editor
 
-Small Vim-like bindings layered onto Pi's existing prompt editor. Requires Pi
-1.1.0's `ctx.ui.getEditorComponent()` API. Starts in insert mode and shows the
+Small Vim-like bindings on Pi's native prompt editor (Pi 1.1.0). Starts in insert mode and shows the
 current mode in the editor's bottom border. The focused cursor is a vertical
 I-beam in insert mode and a block in normal mode. The development checkout lives at
 `/home/michaelb/Documents/repos/projects/pi-extensions/pi-modal-editor`.
@@ -84,18 +83,16 @@ Native undo restores these deletions in character/grapheme-sized steps.
 
 ## Installation and composition
 
-Add this directory as the **last** entry in `~/.pi/agent/settings.json`'s
-`packages` array:
+Add this directory to `~/.pi/agent/settings.json`'s `packages` array:
 
 ```json
 "/home/michaelb/Documents/repos/projects/pi-extensions/pi-modal-editor"
 ```
 
-Run `/reload`. Keep it after other packages that replace the editor. The
-extension captures their editor factory, creates its editor, and decorates that
-same instance; when no custom factory exists, it creates a native `CustomEditor`.
-It does not replace history logic or copy editor internals. An incompatible custom
-editor fails with an explicit error naming the missing method.
+Run `/reload`. Each session installs a native `CustomEditor` through
+`ctx.ui.setEditorComponent()` and decorates that instance; it does not copy
+editor internals. It does not compose with other packages that replace the
+editor: whichever installs its editor last wins.
 
 `pi-shared-prompt-history` is command-only lookup and does not own the editor, so
 these two packages work in either relative order. Native Up/Down (and modal `j`/`k`)
@@ -109,10 +106,6 @@ shared-history implementation, where shared seeding can mask the missing native
 entries. Removing seeding exposes it; `/history` remains available. A separate
 host/modal lifecycle fix is not included here. The live reproduction is recorded in
 `pi-shared-prompt-history/docs/ai/command-only-history-validation.md`.
-
-Do not put this extension in the auto-discovered `extensions/` directory: Pi
-loads those extensions before package extensions. A later editor replacement
-would override this wrapper.
 
 ## Development
 
