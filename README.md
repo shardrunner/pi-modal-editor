@@ -82,13 +82,28 @@ Native undo restores these deletions in character/grapheme-sized steps.
 
 ## Installation and composition
 
-Add this directory to `~/.pi/agent/settings.json`'s `packages` array:
+Install from the private GitHub repository (requires GitHub SSH access):
 
-```json
-"/home/michaelb/Documents/repos/projects/pi-extensions/pi-modal-editor"
+```sh
+pi install git:git@github.com:shardrunner/pi-modal-editor
 ```
 
-Run `/reload`. Each session installs a native `CustomEditor` through
+This adds the GitHub source to `~/.pi/agent/settings.json`'s `packages` array.
+When migrating from a local installation, replace its existing package entry
+rather than keeping both sources, so the extension loads only once.
+
+After pushing changes, update the installed checkout:
+
+```sh
+pi update git:git@github.com:shardrunner/pi-modal-editor
+```
+
+Run `/reload` in active sessions after installation or updates. Editing the
+local development checkout alone does not change the installed GitHub checkout.
+For local development, use `pi install /absolute/path/to/pi-modal-editor` instead
+of the GitHub source.
+
+Each session installs a native `CustomEditor` through
 `ctx.ui.setEditorComponent()` and decorates that instance; it does not copy
 editor internals. It does not compose with other packages that replace the
 editor: whichever installs its editor last wins.
