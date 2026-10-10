@@ -58,7 +58,7 @@ Pi's existing cursor marker preserving positioning and IME support. Terminal
 support for cursor shapes is required; the mode label remains available either
 way. On focus loss or session shutdown, the extension requests the terminal's
 default cursor shape and restores Pi's previous hardware-cursor visibility.
-Existing custom-editor focus accessors are preserved.
+Custom editors must keep Pi's plain `focused` field; accessors fail loudly.
 
 `w`/`b`/`e` follow Pi's native word jumps (Alt+F/Alt+B): ASCII punctuation
 separates words, Unicode punctuation inside a word (`foo’bar`) does not, and `_`

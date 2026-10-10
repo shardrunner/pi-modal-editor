@@ -846,27 +846,16 @@ for (const Tui of [TuiMainScreen, TuiAltScreen]) {
   });
 }
 
-test("cursor focus decoration preserves existing accessors and visibility", () => {
+test("cursor focus decoration restores the plain field and fails loudly on accessors", () => {
   const terminalTui = fakeTui();
-  terminalTui.setShowHardwareCursor(true);
   const editor = new CustomEditor(terminalTui as unknown as TUI, theme, bindings);
-  let focused = false;
-  let assignments = 0;
-  Object.defineProperty(editor, "focused", {
-    configurable: true,
-    get: () => focused,
-    set: (value: boolean) => { focused = value; assignments++; },
-  });
   const dispose = addModalKeys(editor, terminalTui as unknown as TUI, noClipboard);
   editor.focused = true;
-  editor.focused = false;
-  assert.equal(focused, false);
-  assert.equal(assignments, 2);
-  assert.equal(terminalTui.getShowHardwareCursor(), true);
   dispose();
-  editor.focused = true;
-  assert.equal(assignments, 3);
-  assert.equal(terminalTui.writes.at(-1), "\x1b[0 q");
+  assert.deepEqual(Object.getOwnPropertyDescriptor(editor, "focused"), { value: true, writable: true, enumerable: true, configurable: true });
+  const custom = new CustomEditor(tui, theme, bindings);
+  Object.defineProperty(custom, "focused", { configurable: true, get: () => false, set: () => {} });
+  assert.throws(() => addModalKeys(custom, tui, noClipboard), /plain writable focused field/);
 });
 
 test("cursor styling preserves unrelated inverse text and cached render output", () => {

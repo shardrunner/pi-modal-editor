@@ -56,12 +56,12 @@ read_when:
   clipboard result or native UI reset; no timers.
 - Use a real steady I-beam in insert mode and a steady block in normal mode via
   DECSCUSR. Enable Pi's hardware cursor only while the modal editor is focused.
-  Decorate the public `focused` property while preserving existing accessors;
+  Decorate Pi's plain `focused` field (accessors fail loudly) so overlays update it;
   restore prior visibility and request the terminal-default shape on focus loss.
   Strip only the software inverse sequence immediately after `CURSOR_MARKER`,
   keeping IME positioning, Unicode widths, and unrelated inverse text intact.
   Copy native render arrays before modification. Idempotent shutdown cleanup
-  restores focus descriptors/native handlers and cancels pending pastes.
+  restores the focused field/native handlers and cancels pending pastes.
 - Dismiss autocomplete before `gg`/`G`, clamp `a` at logical-line end, and use
   Pi's public key parser for Kitty and modifyOtherKeys key identity. Preserve
   Shift on printable Kitty commands and forward parsed control keys to native

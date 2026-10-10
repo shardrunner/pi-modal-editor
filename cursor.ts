@@ -3,17 +3,12 @@ import type { TUI } from "@earendil-works/pi-tui";
 
 /** Let Pi position the real cursor using its existing IME marker. */
 export function useModeCursor(editor: CustomEditor, tui: TUI, mode: () => "insert" | "normal", onFocusChange: () => void) {
+  // Pi's Editor declares `focused` as a plain field; decorate exactly that.
   const own = Object.getOwnPropertyDescriptor(editor, "focused");
-  let descriptor = own;
-  let prototype = Object.getPrototypeOf(editor);
-  while (!descriptor && prototype) {
-    descriptor = Object.getOwnPropertyDescriptor(prototype, "focused");
-    prototype = Object.getPrototypeOf(prototype);
+  if (!own || !("value" in own) || !own.writable || !own.configurable) {
+    throw new Error("Modal editor requires a plain writable focused field.");
   }
-  if (own?.configurable === false || (descriptor?.get && !descriptor.set) || descriptor?.writable === false) {
-    throw new Error("Modal editor requires a writable, configurable focused property.");
-  }
-  let focused = editor.focused;
+  let focused: boolean = own.value;
   let previousVisibility: boolean | undefined;
   let disposed = false;
 
@@ -32,13 +27,11 @@ export function useModeCursor(editor: CustomEditor, tui: TUI, mode: () => "inser
   }
   Object.defineProperty(editor, "focused", {
     configurable: true,
-    enumerable: descriptor?.enumerable ?? true,
-    get: () => descriptor?.get ? descriptor.get.call(editor) : focused,
+    enumerable: own.enumerable,
+    get: () => focused,
     set: (value: boolean) => {
-      const before = editor.focused;
-      if (descriptor?.set) descriptor.set.call(editor, value);
-      else focused = value;
-      if (before !== editor.focused) onFocusChange();
+      if (value !== focused) onFocusChange();
+      focused = value;
       update();
     },
   });
@@ -49,9 +42,7 @@ export function useModeCursor(editor: CustomEditor, tui: TUI, mode: () => "inser
       if (disposed) return;
       disposed = true;
       restore();
-      const value = editor.focused;
-      if (own) Object.defineProperty(editor, "focused", "value" in own ? { ...own, value } : own);
-      else Reflect.deleteProperty(editor, "focused");
+      Object.defineProperty(editor, "focused", { ...own, value: focused });
     },
   };
 }
