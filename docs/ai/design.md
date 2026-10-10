@@ -23,7 +23,16 @@ read_when:
 - Snapshot `yy` through public `getExpandedText()`. This safely supports collapsed
   pastes without private expansion APIs, stale IDs, or rejection/warning machinery.
   `p`/`P` insert the saved draft below/above the current line; an empty snapshot
-  is a no-op. The register is internal, not the system clipboard.
+  is a no-op. Also write the snapshot (including empty text) to the standard
+  system clipboard through Pi's public `copyToClipboard()`. Serialize asynchronous
+  writes to preserve command order; notify on failure while retaining the internal
+  register for `p`/`P`. Inject the copier/error reporter in tests so they never
+  overwrite the user's real clipboard.
+- Differentiate the focused software cursor: underline in insert mode, native
+  inverse block in normal mode. Restyle only the inverse sequence immediately
+  after `CURSOR_MARKER`, preserving IME positioning and unrelated inverse text.
+  Copy the native render array before changing it so cached custom-editor output
+  is not mutated. Avoid terminal-wide cursor shape or visibility changes.
 - Dismiss autocomplete before `gg`/`G`, clamp `a` at logical-line end, and use
   Pi's public key parser for Kitty and modifyOtherKeys key identity. Preserve
   Shift on printable Kitty commands and forward parsed control keys to native
@@ -34,4 +43,5 @@ read_when:
 
 Validation: `npm run check` runs TypeScript checking and real-editor tests for
 modes, native movement, deletion edge cases, Unicode, history composition,
-pasting, application callbacks, Kitty keys, and narrow mode labels.
+pasting, application callbacks, Kitty keys, narrow mode labels, clipboard
+snapshots/write ordering/failures, UI error notifications, and cursor styling.

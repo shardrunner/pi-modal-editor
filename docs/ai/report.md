@@ -6,7 +6,8 @@ read_when:
 
 # Pi prompt editor report
 
-Status: completed and tested. Updated 2026-10-09T22:31:34+02:00.
+Status: completed and tested. Includes system-clipboard yanks and mode-specific
+software cursor styling.
 
 ## Repository and runtime setup
 
@@ -38,22 +39,26 @@ history list. That extra feature was not removed during the final review.
 | `gg`, `G` | First/last prompt line, dismissing autocomplete first |
 | `x` | Delete a grapheme without joining lines |
 | `dd` | Delete the current logical line without saving deleted text |
-| `yy` | Copy the entire expanded prompt draft to an internal register |
+| `yy` | Copy the entire expanded prompt draft to the standard system clipboard and an internal register |
 | `p`, `P` | Insert the saved draft below/above the current line |
 
-Starts in insert mode, with a mode indicator in the bottom border.
+Starts in insert mode, with a mode indicator in the bottom border. The focused
+software cursor is an underline in insert mode and an inverse block in normal
+mode; the IME position marker is preserved.
 
 ### Whole-draft `yy` simplification
 
 `yy` now uses public `getExpandedText()` and captures a self-contained text
 snapshot, independent of cursor position. It includes actual collapsed-paste
 content, preserving draft whitespace and leaving the current draft/cursor alone.
-It is an internal yank, **not a system-clipboard copy**.
+The snapshot is saved internally for `p`/`P` and copied to the system clipboard
+through Pi's public `copyToClipboard()` API. Asynchronous writes are serialized;
+failures produce a Pi UI error notification without losing the saved draft.
 
 This supersedes the earlier line-yank rejection policy: there is no longer a
 paste-marker regex, warning callback, or restriction on copying pasted content.
 Later submission, edits, or paste-ID deletion/reuse cannot alter the saved text.
-Copying an empty draft clears the register; pasting it is a no-op.
+Copying an empty draft clears the register and clipboard; pasting it is a no-op.
 
 ## Independent reviews and shared-history decision
 
@@ -85,7 +90,13 @@ being run, then the production correction was validated.
 
 ## Validation
 
-- Modal: TypeScript check and all **33 tests** pass.
+- Modal: TypeScript check and all **39 tests** pass.
+- Clipboard regressions use an injected copier, not the desktop clipboard. They
+  cover expanded Unicode/whitespace/empty snapshots, ordering of slow writes,
+  recovery after failure, retained internal paste behavior, and UI notifications.
+- Cursor regressions cover mode transitions, Unicode graphemes, line ends, IME
+  markers, unrelated inverse styling, cached render output, and narrow widths.
+  No live terminal visual check or desktop clipboard round trip was performed.
 - Shared history: TypeScript check and all **5 tests** pass; production code is
   unchanged.
 - Real-package integration passes across startup/new/resume/fork/reload, checking

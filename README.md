@@ -2,7 +2,8 @@
 
 Small Vim-like bindings layered onto Pi's existing prompt editor. Requires Pi
 1.1.0's `ctx.ui.getEditorComponent()` API. Starts in insert mode and shows the
-current mode in the editor's bottom border. The development checkout lives at
+current mode in the editor's bottom border. The focused cursor is an underline
+in insert mode and a block in normal mode. The development checkout lives at
 `/home/michaelb/Documents/repos/projects/pi-extensions/pi-modal-editor`.
 
 | Key | Normal-mode behavior |
@@ -14,17 +15,28 @@ current mode in the editor's bottom border. The development checkout lives at
 | `gg`, `G` | Start of the first/last logical line in the prompt; never browse history |
 | `x` | Delete the grapheme under the cursor; never join lines |
 | `dd` | Delete the current logical line without yanking |
-| `yy` | Copy the entire expanded prompt draft to an internal register |
+| `yy` | Copy the entire expanded prompt draft to the system clipboard and save it for `p`/`P` |
 | `p`, `P` | Paste the saved draft below/above the current line |
 
 Application shortcuts, Enter, arrow keys, and bracketed paste keep their native
 behavior. Escape closes autocomplete when entering normal mode. Unrecognized
-printable characters are ignored in normal mode. The yank register is internal,
-not the system clipboard. `yy` snapshots the entire draft through Pi's public
+printable characters are ignored in normal mode. `yy` writes to the standard
+system clipboard through Pi's public `copyToClipboard()` API (native platform
+backends, with terminal OSC 52 support for remote/headless sessions). Clipboard
+failures produce an error notification without losing the internal snapshot used
+by `p`/`P`. Writes are serialized so repeated `yy` commands finish in order.
+On Linux, clipboard access may require `wl-copy` (Wayland) or `xclip`/`xsel` (X11);
+OSC 52 requires terminal support and permission.
+
+`yy` snapshots the entire draft through Pi's public
 `getExpandedText()` API, including the actual content of collapsed pastes. The
 saved text does not depend on mutable paste IDs, so it survives edits, submission,
 and paste-ID reuse. It does not change the draft or cursor. Pasting an empty saved
-draft is a no-op.
+draft is a no-op; `yy` on an empty draft also clears the clipboard.
+
+Cursor styling changes only Pi's focused software cursor and preserves its IME
+position marker. It does not change the terminal-wide hardware cursor shape or
+visibility, so dialogs and other terminal applications keep their native behavior.
 
 `gg`/`G` close autocomplete before moving; `j`/`k` still navigate its list.
 Escape in normal mode retains Pi's abort behavior; double Escape with an empty
