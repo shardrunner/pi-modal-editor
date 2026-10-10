@@ -828,12 +828,17 @@ for (const Tui of [TuiMainScreen, TuiAltScreen]) {
   });
 }
 
-test("cursor focus decoration restores the plain field and fails loudly on accessors", () => {
+test("cursor focus decoration restores the plain field and prior visibility, and fails loudly on accessors", () => {
   const terminalTui = fakeTui();
+  terminalTui.setShowHardwareCursor(true);
   const editor = new CustomEditor(terminalTui as unknown as TUI, theme, bindings);
   const dispose = addModalKeys(editor, terminalTui as unknown as TUI, noClipboard);
   editor.focused = true;
+  editor.focused = false;
+  assert.equal(terminalTui.getShowHardwareCursor(), true);
+  editor.focused = true;
   dispose();
+  assert.equal(terminalTui.getShowHardwareCursor(), true);
   assert.deepEqual(Object.getOwnPropertyDescriptor(editor, "focused"), { value: true, writable: true, enumerable: true, configurable: true });
   const custom = new CustomEditor(tui, theme, bindings);
   Object.defineProperty(custom, "focused", { configurable: true, get: () => false, set: () => {} });
