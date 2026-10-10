@@ -2,7 +2,7 @@
   "name": "pi-modal-editor",
   "version": "0.1.0",
   "private": true,
-  "description": "Small Vim-like keybindings layered onto Pi's existing prompt editor.",
+  "description": "Small Vim-like keybindings on Pi's native prompt editor.",
   "type": "module",
   "pi": { "extensions": ["./index.ts"] },
   "scripts": {
