@@ -90,11 +90,23 @@ Add this directory as the **last** entry in `~/.pi/agent/settings.json`'s
 "/home/michaelb/Documents/repos/projects/pi-extensions/pi-modal-editor"
 ```
 
-Run `/reload`. Keep it after packages that replace the editor, such as
-`pi-shared-prompt-history`. The extension captures their editor factory, creates
-its editor, and decorates that same instance. It does not replace history logic
-or copy editor internals. An incompatible custom editor fails with an explicit
-error naming the missing method.
+Run `/reload`. Keep it after other packages that replace the editor. The
+extension captures their editor factory, creates its editor, and decorates that
+same instance; when no custom factory exists, it creates a native `CustomEditor`.
+It does not replace history logic or copy editor internals. An incompatible custom
+editor fails with an explicit error naming the missing method.
+
+`pi-shared-prompt-history` is command-only lookup and does not own the editor, so
+these two packages work in either relative order. Native Up/Down (and modal `j`/`k`)
+and shared `/history` lookup are separate: choosing a shared prompt replaces the
+draft without submitting it or importing it into native history.
+
+**Known Pi 1.1.0 lifecycle limitation:** with modal enabled, live TUI checks found
+native session-history loss after resume, fork, reload, and a new session with
+preloaded messages. Initial startup works. This also occurs with the old
+shared-history implementation, where shared seeding can mask the missing native
+entries. Removing seeding exposes it; `/history` remains available. A separate
+host/modal lifecycle fix is not included here. See `docs/ai/report.md`.
 
 Do not put this extension in the auto-discovered `extensions/` directory: Pi
 loads those extensions before package extensions. A later editor replacement
@@ -103,6 +115,13 @@ would override this wrapper.
 ## Development
 
 ```sh
-npm install --ignore-scripts
+npm ci --ignore-scripts
 npm run check
 ```
+
+The real-package integration tests use Pi 1.1.0's resource loader and an isolated
+agent directory. They run with a sibling `../pi-shared-prompt-history` checkout,
+or set `PI_SHARED_HISTORY_PACKAGE=/absolute/path/to/pi-shared-prompt-history`.
+Without either, only those two integration tests are skipped; there is no
+cross-repository production dependency. They check both load orders and simulated
+lifecycle UI resets, not Pi's real native-history population during session changes.

@@ -900,7 +900,7 @@ test("wraps an existing editor factory without replacing its history behavior", 
   let created!: CustomEditor;
   let factory: Parameters<ExtensionUIContext["setEditorComponent"]>[0] = (tui, theme, bindings) => {
     created = new CustomEditor(tui, theme, bindings);
-    created.addToHistory("shared prompt");
+    created.addToHistory("custom-factory prompt");
     return created;
   };
   const ctx = {
@@ -915,7 +915,7 @@ test("wraps an existing editor factory without replacing its history behavior", 
   assert.equal(editor, created);
   normal(created);
   keys(created, "k");
-  assert.equal(created.getText(), "shared prompt");
+  assert.equal(created.getText(), "custom-factory prompt");
   assert.ok(created.render(80).at(-1)!.includes("NORMAL"));
   keys(created, "i");
   created.setText("");
@@ -960,7 +960,7 @@ test("a native editor is created when no custom factory exists; repeated starts 
   assert.equal(editor.getText(), "ello");
 });
 
-test("history and modal composition gets a fresh factory after Pi's lifecycle UI reset", async () => {
+test("generic custom-factory composition gets a fresh factory after Pi's lifecycle UI reset", async () => {
   let start!: ExtensionHandler<SessionStartEvent>;
   modalEditor({ on(_name: string, handler: unknown) { start = handler as typeof start; } } as unknown as ExtensionAPI, noClipboard);
   let factory: Parameters<ExtensionUIContext["setEditorComponent"]>[0];

@@ -18,15 +18,19 @@ Both projects are independent Git repositories under
 - `pi-shared-prompt-history`: its existing clean development checkout matched the
   installed version and was retained rather than overwritten.
 
-`~/.pi/agent/settings.json` references these local directories. Shared history
-loads before modal, which wraps its editor factory and decorates the same editor
-instance. History, callbacks, focus, app controls, and paste metadata stay native.
+`~/.pi/agent/settings.json` references these local directories; paths and package
+list are unchanged. Shared history no longer owns an editor factory, so its
+relative order with modal does not matter. Modal still wraps other custom factories
+or creates a native editor when none exists. Its editing, callbacks, focus, app
+controls, and paste handling are unchanged.
 The old cached history checkout and its preexisting dirty lockfile were preserved.
 Nothing was published or pushed.
 
-The `/history` command itself only replaces draft text with `setEditorText()`.
-Shared history owns an editor factory solely to seed its separate native Up/Down
-history list. That extra feature was not removed during the final review.
+The `/history` command only replaces draft text with `setEditorText()` after a
+selection. Shared history now records eligible prompts and captures its fixed
+session-start snapshot without owning the editor or seeding native Up/Down history.
+Native history remains Pi's responsibility; selection neither submits nor imports
+an entry into it.
 
 ## Current behavior
 
@@ -94,10 +98,12 @@ reproduced and corrected. The latest whole-draft change resolves the marker
 problem directly rather than rejecting those yanks; it was regression-tested,
 not sent for another independent review.
 
-Both reviews and runtime-source verification found no necessary shared-history
-production-code patch. Pi resets extension UI before new/resume/fork/reload, so
-factories do not accumulate across normal session replacement. Keep history first
-and modal last; generic load-order-independent wrapping remains optional.
+The earlier reviews found no necessary shared-history patch **while preserving
+cross-session native Up/Down seeding**. The newly requested boundary deliberately
+removes that feature instead: use `/history` for shared lookup and leave native
+navigation separate. This is a change in requirements, not a reversal of those
+historical findings. Pi resets extension UI before new/resume/fork/reload; modal's
+generic factory wrapper remains useful for other editor-owning packages.
 
 Historical review records are in each project's `docs/ai/oracle-reviews.md` and
 remain uncommitted as requested by the peer-work skill.
@@ -131,7 +137,8 @@ bottom border while the menu is open.
 
 ## Validation
 
-- Modal: TypeScript check and all **90 tests** pass.
+- Modal's previous validation: TypeScript check and all **90 tests** passed.
+  Current command-only integration validation is recorded below.
 - New editing regressions cover word/punctuation/whitespace boundaries, Unicode,
   wrapping, blank lines, real/literal paste markers, line opening at first/middle/
   last/empty lines, native undo of typing/newlines/clipboard insertion, autocomplete
@@ -148,13 +155,65 @@ bottom border while the menu is open.
   Real regular/fullscreen TUIs with fake terminals verify visible hardware cursors
   and overlay focus restoration. No live terminal visual check or desktop clipboard
   round trip was performed; local `wl-copy` and `wl-paste` are available.
-- Shared history: TypeScript check and all **5 tests** pass; production code is
-  unchanged.
-- Real-package integration passes across startup/new/resume/fork/reload, checking
-  fresh history and the updated whole-draft `yy`, including collapsed pastes.
+- Earlier shared-history validation: TypeScript check and all **5 tests** passed,
+  before removing native seeding.
+- Earlier real-package integration checked seeded history across lifecycle resets
+  and whole-draft `yy`, including collapsed pastes. That is historical coverage,
+  not evidence for the new command-only boundary.
 - New regressions cover cursor independence, multiline/Unicode/whitespace content,
   paste-ID reuse after submission, marker deletion/renumbering, empty snapshots,
   and `dd` preserving the clipboard and native kill ring.
+
+## Command-only shared-history validation
+
+Shared history's native seeding was removed test-first: four focused regressions
+failed on the old factory setter, then TypeScript and all **9 history tests**
+passed. Modal production code is unchanged. TypeScript and all **92 modal tests**
+pass, including the existing 90 tests and two real-package integration tests.
+`git diff --check` passes in both repositories.
+
+`shared-history.integration.test.ts` loads the real local packages through Pi
+1.1.0's `DefaultResourceLoader` with in-memory settings and synthetic isolated
+JSONL, in both relative orders. Startup/new/resume/fork/reload install only modal's
+factory. Mode rendering and commands run once. Synthetic native-local history
+stays separate from shared-only multiline picker results; selection neither
+submits, seeds native history, replaces the editor, nor appends to the file.
+The test-only sibling path is overridable via `PI_SHARED_HISTORY_PACKAGE`.
+Without a sibling or override these two tests skip, not the ordinary modal suite.
+Generic preexisting-factory tests remain, with misleading shared fixture wording
+removed. Clipboard, collapsed-paste, whole-draft `yy`, `dd`, app shortcuts,
+no-custom-factory behavior, and UI-reset coverage remain unchanged.
+
+### Live TUI lifecycle limitation (preexisting)
+
+Real Pi 1.1.0 regular-mode TUIs were exercised in a dedicated tmux server with
+isolated agent directories, synthetic session messages and shared JSONL, offline
+mode, no tools, and no credentials. Native history was checked through actual
+keyboard navigation; test-only commands invoked Pi's command-context session
+replacement/fork/new operations, and reload used built-in `/reload`.
+No model/API requests or personal history/clipboard operations were made.
+
+| Lifecycle | Command-only shared + modal | Baseline seeded shared + modal | No-modal control |
+| --- | --- | --- | --- |
+| Startup | Native local entry | Native local entry | Native local entry |
+| Resume / fork / reload | Empty native history | Shared-only entry, missing native local entry | Native local entry |
+| New with preloaded setup message | Empty native history | Shared-only entry, missing setup entry | Native setup entry |
+
+Both modal versions restored the full shared-only multiline prompt through the
+real `/history` picker at startup. Live modal checks used history-first ordering;
+the automated real-loader tests cover both orders. Repeated line-start `gg0k`
+checks after resume exhausted navigation, ruling out a multiline cursor-position
+artifact. The transcript still displayed the native session messages.
+
+Baseline reproduction used history `f55a2f9` and unchanged modal `5deffd3`.
+The refactor **exposes but does not cause** native session-history loss on these
+transitions. Pi's custom-editor setter copies text/handlers, not hidden history;
+startup populates history after binding, while replacement/reload can render
+before modal creates a new editor. Shared seeding previously masked that loss.
+The no-modal control works across all tested transitions. A separate host/modal
+lifecycle fix needs user approval; no private-history copying or shared-seeding
+workaround was added. Full procedure/results are recorded in shared history's
+`docs/ai/command-only-history-validation.md`.
 
 ## Deliberate limits and next action
 
@@ -165,4 +224,6 @@ combined-paste-and-trailing-key edge case remains deferred: Pi's terminal input
 buffer separates those packets in normal use.
 
 Run `/reload` to activate the latest code. Local package updates come from their
-Git checkouts and `/reload`, not `pi update`.
+Git checkouts and `/reload`, not `pi update`. Native history after lifecycle
+transitions with modal remains a known separate issue pending approval for a fix;
+shared `/history` lookup remains available.
