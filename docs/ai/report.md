@@ -34,6 +34,10 @@ history list. That extra feature was not removed during the final review.
 | --- | --- |
 | Escape | Insert → normal; normal-mode Escape retains Pi's actions |
 | `i`, `a` | Insert / append without crossing the logical-line boundary |
+| `I`, `A` | Insert at logical column 0/end |
+| `o`, `O` | Open an empty line below/above and enter insert mode |
+| `w`, `b`, `e` | Next/previous small-word start, or word end; never browse history |
+| `u` | Native Ctrl+- undo |
 | `hjkl` | Native arrows, including visually wrapped rows and prompt history |
 | `0`, `$` | Logical-line start/end |
 | `gg`, `G` | First/last prompt line, dismissing autocomplete first |
@@ -69,6 +73,17 @@ snapshot. Copying an empty draft clears the clipboard; pasting empty/no text is
 a no-op. Clipboard reads use native/platform readers; Wayland never falls back
 to stale X11 data. Remote terminal clipboard reads are not supported.
 
+### Additional everyday editing keys
+
+Word motions use Unicode word/punctuation runs with whitespace boundaries across
+logical/blank lines. Native arrows preserve grapheme and collapsed-paste atomicity;
+marker-shaped literals are not mistaken for real pastes. `I` uses column 0,
+not first nonblank; `A` uses the logical line end. `o`/`O` insert an empty line
+atomically without submission and enter insert mode. `u` retains native undo
+snapshots, grouping, and paste expansion. All new commands dismiss autocomplete
+without applying completions. Kitty/modifyOtherKeys Shift decoding also applies
+to the uppercase commands. No `ciw` or operator parser was added.
+
 ## Independent reviews and shared-history decision
 
 The earlier mb-advisor (Astra) and persistent mb-peer-work (Claude Code) reviews
@@ -95,11 +110,17 @@ ignored. A small decoding-precedence correction now honors parsed Shift identity
 and forwards recognized control keys to native handling. Regression coverage also
 checks shifted symbol alternates and Ctrl+C forwarding. No new commands, history
 behavior changes, or unrelated fixes were introduced. Tests were added before
-being run, then the production correction was validated.
+being run, then the production correction was validated. This was the earlier
+unbound-key policy; `I` is now an intentional line-start insert command, so its
+Kitty Shift+I regression now checks line-start insertion rather than rejection.
 
 ## Validation
 
-- Modal: TypeScript check and all **64 tests** pass.
+- Modal: TypeScript check and all **88 tests** pass.
+- New editing regressions cover word/punctuation/whitespace boundaries, Unicode,
+  wrapping, blank lines, real/literal paste markers, line opening at first/middle/
+  last/empty lines, native undo of typing/newlines/clipboard insertion, autocomplete
+  dismissal, and Kitty/modifyOtherKeys encodings.
 - Clipboard regressions inject readers/writers, not the desktop clipboard. They
   cover Unicode/whitespace/empty text, external clipboard changes, copy/read
   ordering, failure recovery, stale-paste cancellation (including external draft

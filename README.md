@@ -10,6 +10,10 @@ I-beam in insert mode and a block in normal mode. The development checkout lives
 | --- | --- |
 | Escape | Insert → normal; in normal mode, forwards Pi's Escape action |
 | `i`, `a` | Insert at the cursor / move right and insert |
+| `I`, `A` | Enter insert mode at the logical line start (column 0) / end |
+| `o`, `O` | Open an empty line below/above and enter insert mode |
+| `w`, `b`, `e` | Next word start / previous word start / word end |
+| `u` | Forward Pi's native Ctrl+- undo |
 | `h`, `j`, `k`, `l` | Forward left/down/up/right arrows, including visual wrapping and history |
 | `0`, `$` | Start/end of the logical line |
 | `gg`, `G` | Start of the first/last logical line in the prompt; never browse history |
@@ -56,12 +60,24 @@ way. On focus loss or session shutdown, the extension requests the terminal's
 default cursor shape and restores Pi's previous hardware-cursor visibility.
 Existing custom-editor focus accessors are preserved.
 
-`gg`/`G` close autocomplete before moving; `j`/`k` still navigate its list.
+`w`/`b`/`e` use small-word boundaries: Unicode letters, numbers, and `_` form
+words; punctuation/emoji form separate runs; whitespace separates both. Motions
+cross logical lines and blank lines without browsing history and are independent
+of visual wrapping. Graphemes and real collapsed paste markers remain atomic.
+At the prompt boundary, `w` may reach the end-of-line insertion position; `e`
+stays put when there is no following word.
+
+`I` means column 0, including any leading whitespace—not Vim's first nonblank.
+`o`/`O` insert a newline atomically through Pi's public insertion API, so one `u`
+undoes an untouched opened line. Typing and `dd` keep Pi's native undo grouping.
+
+`gg`/`G`, word motions, undo, and insert-entry commands dismiss autocomplete
+without applying a completion; `j`/`k` still navigate its list.
 Escape in normal mode retains Pi's abort behavior; double Escape with an empty
 prompt can still open Pi's session tree.
 
 This intentionally is not a full Vim implementation: no counts, visual mode,
-operators, or Vim cursor clamping. `dd` uses native Delete/Backspace rather than
+operators (including `ciw`), or Vim cursor clamping. `dd` uses native Delete/Backspace rather than
 kill-line, so it leaves both the system clipboard and Pi's kill ring alone.
 Native undo restores these deletions in character/grapheme-sized steps.
 

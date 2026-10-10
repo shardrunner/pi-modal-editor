@@ -18,6 +18,15 @@ read_when:
   avoid Pi's kill ring, at the cost of character-sized native undo steps.
 - Movement follows native visual rows. Deletion and paste placement use logical
   lines; `yy` copies the entire current prompt draft regardless of cursor position.
+- Add `w`/`b`/`e` small-word motions through native arrows. Unicode letters,
+  numbers, and `_` form word runs; punctuation/emoji form other runs. Whitespace
+  separates runs across logical/blank lines. Never browse history or split
+  graphemes. Probe native arrow movement only for marker-shaped text to distinguish
+  real collapsed pastes (atomic) from literal lookalikes; no private paste IDs.
+- `u` forwards native Ctrl+- undo. `I`/`A` insert at logical column 0/end, and
+  `o`/`O` open a line below/above via atomic public `insertTextAtCursor("\\n")`.
+  Dismiss autocomplete first, never submit, then enter insert mode. Keep native
+  undo grouping and paste metadata; `ciw`/general operators remain out of scope.
 - The intentionally small state machine only handles doubled `d`, `y`, `g`,
   the mode, and bracketed paste forwarding. Clipboard operations have a shared
   asynchronous queue and activity tracking for stale-paste cancellation.
@@ -34,8 +43,8 @@ read_when:
 - Serialize copies and reads so rapid `yy`/`p` commands preserve order. Cancel
   pending pastes after input/focus/cursor/text changes or shutdown. Decorate public
   `setText()` to detect external draft resets even before queued reads begin.
-  Inject clipboard
-  readers/writers in tests; never read or overwrite the user's real clipboard.
+  Inject clipboard readers/writers in tests; never read or overwrite the user's
+  real clipboard.
 - Report clipboard results through `ctx.ui.setStatus()` under the dedicated
   `modal-editor-clipboard` key. No copying-progress message. Show success only
   after the copier resolves; replace it with a failure status after a failed copy.
@@ -62,4 +71,5 @@ modes, native movement, deletion edge cases, Unicode, history composition,
 pasting, application callbacks, Kitty keys, narrow mode labels, clipboard
 snapshots/operation ordering/failures, platform clipboard readers, stale-paste
 cancellation, result-only status messages, hardware cursor shapes, regular and
-fullscreen rendering, overlay focus, and shutdown restoration.
+fullscreen rendering, overlay focus, shutdown restoration, word boundaries,
+Unicode/atomic-paste motions, logical-line opening, native undo, and encoded keys.
