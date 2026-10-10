@@ -24,8 +24,8 @@ I-beam in insert mode and a block in normal mode. The development checkout lives
 Application shortcuts, Enter, arrow keys, and bracketed paste keep their native
 behavior. Escape closes autocomplete when entering normal mode. Unrecognized
 printable characters are ignored in normal mode. `yy` writes to the standard
-system clipboard through Pi's public `copyToClipboard()` API (native platform
-backends, with terminal OSC 52 support for remote/headless sessions). Clipboard
+system clipboard through Pi's public `copyToClipboard()` API (on Linux:
+`wl-copy` or `xclip`/`xsel`, with terminal OSC 52 for remote/headless sessions). Clipboard
 failures produce an error notification. The status line shows
 `Copied draft to clipboard` after success (or `Clipboard cleared` for an empty
 draft); there is no copying-progress message. A failed copy shows
@@ -40,8 +40,7 @@ text changes while the read is pending; submission and session shutdown also
 cancel pending pastes.
 
 Pasting supports Linux only and requires `wl-paste` (Wayland) or `xclip`/`xsel`
-(X11); Wayland reads never fall back to potentially stale X11 data. Copying
-uses the matching `wl-copy`/`xclip`/`xsel` tools. OSC 52 copying requires terminal
+(X11); Wayland reads never fall back to potentially stale X11 data. OSC 52 copying requires terminal
 support and permission. Reading the client clipboard over SSH/headless terminals
 is not supported: use the terminal's paste shortcut if no local clipboard exists.
 
