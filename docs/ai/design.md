@@ -73,8 +73,13 @@ read_when:
   correctly on actual lifecycle transitions. Live Pi 1.1.0 checks reproduce native
   history loss after resume/fork/reload and preloaded new sessions, including with
   baseline shared seeding; startup and the no-modal control work. This separate
-  host/modal issue needs approval before a fix. Do not copy private history or
-  restore shared seeding as a workaround; see the report's validation section.
+  host/modal issue needs approval before a fix. Likely cause: Pi's custom-editor
+  setter copies text/handlers, not hidden history; startup populates history after
+  binding, but replacement/reload can render before modal creates its editor. Do
+  not copy private history or restore shared seeding as a workaround. Live tmux
+  reproduction: `pi-shared-prompt-history/docs/ai/command-only-history-validation.md`.
+- Deferred: component-level paste plus trailing input in one packet; Pi's
+  terminal input buffer separates those packets in normal use.
 
 Validation: `npm run check` runs TypeScript checking and real-editor tests for
 modes, native movement, deletion edge cases, Unicode, history composition,

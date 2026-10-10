@@ -107,7 +107,8 @@ native session-history loss after resume, fork, reload, and a new session with
 preloaded messages. Initial startup works. This also occurs with the old
 shared-history implementation, where shared seeding can mask the missing native
 entries. Removing seeding exposes it; `/history` remains available. A separate
-host/modal lifecycle fix is not included here. See `docs/ai/report.md`.
+host/modal lifecycle fix is not included here. The live reproduction is recorded in
+`pi-shared-prompt-history/docs/ai/command-only-history-validation.md`.
 
 Do not put this extension in the auto-discovered `extensions/` directory: Pi
 loads those extensions before package extensions. A later editor replacement
