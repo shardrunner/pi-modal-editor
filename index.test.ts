@@ -212,6 +212,15 @@ test("clipboard read errors do not fall back to a previous yy snapshot", async (
   assert.deepEqual(errors, ["Failed to paste clipboard: read unavailable"]);
 });
 
+test("a queued clipboard paste is cancelled by a draft reset before reading begins", async () => {
+  const editor = create("old", { readClipboard: async () => "clipboard" });
+  normal(editor);
+  keys(editor, "P");
+  editor.setText("new");
+  await flush();
+  assert.equal(editor.getText(), "new");
+});
+
 for (const change of ["text", "cursor", "input", "submission", "focus"] as const) {
   test(`a slow clipboard paste is cancelled after ${change} changes`, async () => {
     let finish!: (text: string) => void;

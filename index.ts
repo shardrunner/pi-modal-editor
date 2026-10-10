@@ -20,6 +20,7 @@ interface ModalEditorOptions {
 export function addModalKeys(editor: CustomEditor, tui: TUI, options: ModalEditorOptions = {}): () => void {
   const input = editor.handleInput.bind(editor);
   const render = editor.render.bind(editor);
+  const setText = editor.setText.bind(editor);
   let mode: "insert" | "normal" = "insert";
   let pending: string | undefined;
   let pasting = false;
@@ -97,6 +98,10 @@ export function addModalKeys(editor: CustomEditor, tui: TUI, options: ModalEdito
     else if (line > 0) input("\x7f");
     input("\x01");
   }
+
+  // A command or extension can replace a draft without sending keyboard input,
+  // including while a paste is still waiting behind an earlier clipboard copy.
+  editor.setText = (text) => { activity++; setText(text); };
 
   editor.handleInput = (data) => {
     if (isKeyRelease(data) || !active) return;
@@ -182,6 +187,7 @@ export function addModalKeys(editor: CustomEditor, tui: TUI, options: ModalEdito
     cursor.dispose();
     editor.handleInput = input;
     editor.render = render;
+    editor.setText = setText;
   };
 }
 
