@@ -73,6 +73,229 @@ test("hjkl forwards arrows, including movement through visually wrapped rows", (
   }
 });
 
+test("w/b/e move across word, punctuation, and whitespace boundaries", () => {
+  const editor = create("foo_bar,  baz!! tail");
+  normal(editor);
+  keys(editor, "gg");
+  for (const col of [7, 10, 13, 16, 20]) {
+    keys(editor, "w");
+    assert.deepEqual(editor.getCursor(), { line: 0, col });
+  }
+  for (const col of [16, 13, 10, 7, 0]) {
+    keys(editor, "b");
+    assert.deepEqual(editor.getCursor(), { line: 0, col });
+  }
+  for (const col of [6, 7, 12, 14, 19, 19]) {
+    keys(editor, "e");
+    assert.deepEqual(editor.getCursor(), { line: 0, col });
+  }
+});
+
+test("word motions cross blank lines, stay in the draft, and never browse history", () => {
+  const editor = create("one\n\n  two\nlast");
+  editor.addToHistory("older prompt");
+  normal(editor);
+  keys(editor, "ggb");
+  assert.deepEqual(editor.getCursor(), { line: 0, col: 0 });
+  keys(editor, "w");
+  assert.deepEqual(editor.getCursor(), { line: 2, col: 2 });
+  keys(editor, "e");
+  assert.deepEqual(editor.getCursor(), { line: 2, col: 4 });
+  keys(editor, "e");
+  assert.deepEqual(editor.getCursor(), { line: 3, col: 3 });
+  keys(editor, "b");
+  assert.deepEqual(editor.getCursor(), { line: 3, col: 0 });
+  keys(editor, "b");
+  assert.deepEqual(editor.getCursor(), { line: 2, col: 2 });
+  keys(editor, "b");
+  assert.deepEqual(editor.getCursor(), { line: 0, col: 0 });
+  keys(editor, "G$wwe");
+  assert.deepEqual(editor.getCursor(), { line: 3, col: 4 });
+  assert.equal(editor.getText(), "one\n\n  two\nlast");
+  const empty = create("");
+  normal(empty);
+  keys(empty, "wbewbe");
+  assert.equal(empty.getText(), "");
+  assert.deepEqual(empty.getCursor(), { line: 0, col: 0 });
+});
+
+test("word motions preserve Unicode graphemes and ignore visual wrapping", () => {
+  for (const width of [8, 80]) {
+    const editor = create("é界 🙂🙂 next");
+    editor.render(width);
+    normal(editor);
+    keys(editor, "gge");
+    assert.deepEqual(editor.getCursor(), { line: 0, col: 2 });
+    keys(editor, "w");
+    assert.deepEqual(editor.getCursor(), { line: 0, col: 4 });
+    keys(editor, "e");
+    assert.deepEqual(editor.getCursor(), { line: 0, col: 6 });
+    keys(editor, "w");
+    assert.deepEqual(editor.getCursor(), { line: 0, col: 9 });
+    keys(editor, "bb");
+    assert.deepEqual(editor.getCursor(), { line: 0, col: 0 });
+    assert.equal(editor.getText(), "é界 🙂🙂 next");
+  }
+});
+
+test("word motions treat actual collapsed pastes as atomic, not literal lookalikes", () => {
+  const editor = create("prefix ");
+  const paste = "A".repeat(2100);
+  editor.handleInput(`\x1b[200~${paste}\x1b[201~`);
+  keys(editor, " suffix");
+  const text = editor.getText();
+  const suffix = text.indexOf("suffix");
+  normal(editor);
+  keys(editor, "ggw");
+  assert.deepEqual(editor.getCursor(), { line: 0, col: 7 });
+  keys(editor, "w");
+  assert.deepEqual(editor.getCursor(), { line: 0, col: suffix });
+  keys(editor, "b");
+  assert.deepEqual(editor.getCursor(), { line: 0, col: 7 });
+  keys(editor, "gge");
+  assert.deepEqual(editor.getCursor(), { line: 0, col: 5 });
+  keys(editor, "e");
+  assert.deepEqual(editor.getCursor(), { line: 0, col: 7 });
+  keys(editor, "e");
+  assert.deepEqual(editor.getCursor(), { line: 0, col: suffix + 5 });
+  assert.equal(editor.getExpandedText(), `prefix ${paste} suffix`);
+  const literal = create("a [paste #99 (10 chars)] z");
+  normal(literal);
+  keys(literal, "ggww");
+  assert.deepEqual(literal.getCursor(), { line: 0, col: 3 });
+  keys(literal, "b");
+  assert.deepEqual(literal.getCursor(), { line: 0, col: 2 });
+});
+
+for (const key of ["I", "A"] as const) {
+  test(`${key} enters insert mode at the logical line boundary, even with wrapping`, () => {
+    const editor = create("first\n  a long wrapped middle line\nlast");
+    editor.render(8);
+    normal(editor);
+    keys(editor, "ggj");
+    // j may land on a visual row; gg starts on the short first line.
+    assert.equal(editor.getCursor().line, 1);
+    keys(editor, `${key}!`);
+    assert.equal(editor.getText(), key === "I"
+      ? "first\n!  a long wrapped middle line\nlast"
+      : "first\n  a long wrapped middle line!\nlast");
+    assert.ok(editor.render(80).at(-1)?.includes("INSERT"));
+  });
+}
+
+for (const [name, text, navigation, line] of [
+  ["first", "one\ntwo", "ggl", 0],
+  ["middle", "one\ntwo\nthree", "ggj", 1],
+  ["last", "one\ntwo", "G", 1],
+  ["only", "界🙂é", "ggl", 0],
+  ["empty", "", "", 0],
+  ["wrapped", "a long line that wraps several times\nlast", "ggll", 0],
+] as const) {
+  for (const key of ["o", "O"] as const) {
+    test(`${key} opens a new line at the ${name} line and enters insert mode`, () => {
+      const editor = create(text);
+      editor.render(10);
+      let submissions = 0;
+      editor.onSubmit = () => { submissions++; };
+      normal(editor);
+      keys(editor, `${navigation}${key}`);
+      const lines = text.split("\n");
+      const target = key === "o" ? line + 1 : line;
+      lines.splice(target, 0, "");
+      assert.equal(editor.getText(), lines.join("\n"));
+      assert.deepEqual(editor.getCursor(), { line: target, col: 0 });
+      assert.ok(editor.render(80).at(-1)?.includes("INSERT"));
+      keys(editor, "new");
+      lines[target] = "new";
+      assert.equal(editor.getText(), lines.join("\n"));
+      assert.equal(submissions, 0);
+    });
+  }
+}
+
+test("u uses native undo without entering insert mode", () => {
+  const editor = create("");
+  keys(editor, "hello");
+  normal(editor);
+  keys(editor, "u");
+  assert.equal(editor.getText(), "");
+  keys(editor, "q");
+  assert.equal(editor.getText(), "");
+  assert.ok(editor.render(80).at(-1)?.includes("NORMAL"));
+  keys(editor, "u");
+  assert.equal(editor.getText(), "");
+});
+
+for (const key of ["o", "O"] as const) {
+  test(`u undoes ${key}'s newline atomically and preserves collapsed pastes`, () => {
+    const editor = create("prefix\n");
+    const paste = "A".repeat(2100);
+    editor.handleInput(`\x1b[200~${paste}\x1b[201~`);
+    const text = editor.getText();
+    const expanded = editor.getExpandedText();
+    normal(editor);
+    keys(editor, key);
+    normal(editor);
+    keys(editor, "u");
+    assert.equal(editor.getText(), text);
+    assert.equal(editor.getExpandedText(), expanded);
+  });
+}
+
+test("u undoes a clipboard insertion atomically without changing the clipboard", async () => {
+  const clipboard = memoryClipboard();
+  await clipboard.copyToClipboard("copied\ntext");
+  const editor = create("target", clipboard);
+  normal(editor);
+  keys(editor, "P");
+  await flush();
+  assert.equal(editor.getText(), "copied\ntext\ntarget");
+  keys(editor, "u");
+  assert.equal(editor.getText(), "target");
+  assert.equal(await clipboard.readClipboard(), "copied\ntext");
+});
+
+test("new commands dismiss autocomplete without applying a completion or submitting", async () => {
+  for (const key of ["w", "b", "e", "I", "A", "o", "O", "u"]) {
+    const editor = create("first\nlast");
+    let submissions = 0;
+    editor.onSubmit = () => { submissions++; };
+    editor.setAutocompleteProvider({
+      async getSuggestions() { return { prefix: "", items: [{ value: "one", label: "one" }, { value: "two", label: "two" }] }; },
+      applyCompletion() { throw new Error("unexpected completion"); },
+    });
+    normal(editor);
+    editor.handleInput("\t");
+    await flush();
+    assert.equal(editor.isShowingAutocomplete(), true);
+    keys(editor, key);
+    assert.equal(editor.isShowingAutocomplete(), false, `${key} must dismiss autocomplete`);
+    assert.equal(submissions, 0);
+  }
+});
+
+test("new commands work with Kitty and modifyOtherKeys encodings", () => {
+  for (const [data, expected] of [
+    ["\x1b[97;2u", "draft!"], // Shift+A
+    ["\x1b[27;2;65~", "draft!"],
+    ["\x1b[111;2u", "!\ndraft"], // Shift+O
+    ["\x1b[27;2;79~", "!\ndraft"],
+  ]) {
+    const editor = create("draft");
+    normal(editor);
+    editor.handleInput(data);
+    keys(editor, "!");
+    assert.equal(editor.getText(), expected);
+  }
+  const editor = create("one two");
+  normal(editor);
+  keys(editor, "gg");
+  editor.handleInput("\x1b[119u"); // w
+  assert.deepEqual(editor.getCursor(), { line: 0, col: 4 });
+  editor.handleInput("\x1b[27;1;101~"); // e
+  assert.deepEqual(editor.getCursor(), { line: 0, col: 6 });
+});
+
 test("gg/G stay within the prompt instead of browsing history", () => {
   const editor = create("first\nsecond\nlast long line");
   editor.addToHistory("older prompt");
@@ -311,12 +534,12 @@ test("Kitty Shift+G works with or without a shifted alternate codepoint", () => 
   }
 });
 
-test("unbound Kitty Shift+I does not accidentally enter insert mode", () => {
+test("Kitty Shift+I enters insert mode at line start, not at the old cursor", () => {
   const editor = create("draft");
   normal(editor);
   editor.handleInput("\x1b[105;2u");
   keys(editor, "q");
-  assert.equal(editor.getText(), "draft");
+  assert.equal(editor.getText(), "qdraft");
 });
 
 test("Kitty Backspace is forwarded as editing input, not ignored as printable text", () => {

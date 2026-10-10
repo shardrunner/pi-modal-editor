@@ -3,6 +3,7 @@ import { CURSOR_MARKER, decodeKittyPrintable, isKeyRelease, matchesKey, parseKey
 
 import { readSystemClipboard } from "./clipboard.ts";
 import { useModeCursor } from "./cursor.ts";
+import { moveWord } from "./word-motions.ts";
 
 type EditorFactory = NonNullable<Parameters<ExtensionUIContext["setEditorComponent"]>[0]>;
 const movement: Record<string, string> = {
@@ -99,6 +100,12 @@ export function addModalKeys(editor: CustomEditor, tui: TUI, options: ModalEdito
     input("\x01");
   }
 
+  function enterInsert(): void {
+    mode = "insert";
+    cursor.update();
+    tui.requestRender();
+  }
+
   // A command or extension can replace a draft without sending keyboard input,
   // including while a paste is still waiting behind an earlier clipboard copy.
   editor.setText = (text) => { activity++; setText(text); };
@@ -150,14 +157,27 @@ export function addModalKeys(editor: CustomEditor, tui: TUI, options: ModalEdito
     }
     if (key === "d" || key === "y" || key === "g") pending = key;
     else if (key === "G") moveToLine(editor.getLines().length - 1);
-    else if (key === "i" || key === "a") {
-      if (key === "a") {
+    else if (key === "w" || key === "b" || key === "e") moveWord(editor, input, key);
+    else if (key === "u") {
+      if (editor.isShowingAutocomplete()) input("\x1b");
+      input("\x1f"); // Native Ctrl+- undo, including paste metadata.
+    } else if (key === "i" || key === "a" || key === "I" || key === "A") {
+      if (editor.isShowingAutocomplete()) input("\x1b");
+      if (key === "I") input("\x01");
+      else if (key === "A") input("\x05");
+      else if (key === "a") {
         const { line, col } = editor.getCursor();
         if (col < editor.getLines()[line].length) input("\x1b[C");
       }
-      mode = "insert";
-      cursor.update();
-      tui.requestRender();
+      enterInsert();
+    } else if (key === "o" || key === "O") {
+      if (editor.isShowingAutocomplete()) input("\x1b");
+      const line = editor.getCursor().line;
+      input(key === "o" ? "\x05" : "\x01");
+      // Public insertion makes the newline one native undo step; never submit.
+      editor.insertTextAtCursor("\n");
+      if (key === "O") moveToLine(line);
+      enterInsert();
     } else if (key === "x") {
       const { line, col } = editor.getCursor();
       if (col < editor.getLines()[line].length) input("\x1b[3~");
