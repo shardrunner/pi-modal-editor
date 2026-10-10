@@ -12,7 +12,7 @@ const movement: Record<string, string> = {
 
 interface ModalEditorOptions {
   copyToClipboard?: (text: string) => Promise<void>;
-  readClipboard?: () => Promise<string | null>;
+  readClipboard?: () => Promise<string>;
   onClipboardError?: (message: string) => void;
   onClipboardStatus?: (message: string) => void;
 }

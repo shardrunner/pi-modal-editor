@@ -40,10 +40,9 @@ An empty clipboard is a no-op. A paste is cancelled if input, focus, cursor, or
 text changes while the read is pending; submission and session shutdown also
 cancel pending pastes.
 
-On Linux, copying/pasting may require `wl-copy`/`wl-paste` (Wayland) or
-`xclip`/`xsel` (X11). Wayland reads never fall back to potentially stale X11 data.
-macOS/Windows use native clipboard readers with platform-command fallbacks;
-Termux and headless WSL also have command readers. OSC 52 copying requires terminal
+Pasting supports Linux only and requires `wl-paste` (Wayland) or `xclip`/`xsel`
+(X11); Wayland reads never fall back to potentially stale X11 data. Copying
+uses the matching `wl-copy`/`xclip`/`xsel` tools. OSC 52 copying requires terminal
 support and permission. Reading the client clipboard over SSH/headless terminals
 is not supported: use the terminal's paste shortcut if no local clipboard exists.
 

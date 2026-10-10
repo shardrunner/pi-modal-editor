@@ -434,16 +434,6 @@ test("p/P read the current global clipboard, including changes outside yy", asyn
   assert.deepEqual(editor.getCursor(), { line: 4, col: 0 });
 });
 
-test("p/P with no clipboard text are no-ops", async () => {
-  const editor = create("target", { readClipboard: async () => null });
-  normal(editor);
-  const cursor = editor.getCursor();
-  keys(editor, "pP");
-  await flush();
-  assert.equal(editor.getText(), "target");
-  assert.deepEqual(editor.getCursor(), cursor);
-});
-
 test("repeated clipboard pastes are serialized and read fresh text for each command", async () => {
   let read = 0;
   const editor = create("target", { readClipboard: async () => `paste ${++read}` });

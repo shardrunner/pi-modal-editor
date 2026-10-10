@@ -41,7 +41,7 @@ read_when:
 - `p`/`P` read the current standard clipboard, not an internal register, and insert
   below/above the current line. Empty/no text is a no-op; read failures are visible
   and never use stale yanked text. Pi does not publicly export `readClipboardText`,
-  so `clipboard.ts` uses public native readers and platform commands. Preserve
+  so `clipboard.ts` runs the Linux commands Pi copies with (Linux only). Preserve
   whitespace; use CLIPBOARD, not X11 primary selection; never fall back from
   Wayland to potentially stale X11 data. No terminal OSC 52 read interception.
 - Serialize copies and reads so rapid `yy`/`p` commands preserve order. Cancel
@@ -79,7 +79,7 @@ read_when:
 Validation: `npm run check` runs TypeScript checking and real-editor tests for
 modes, native movement, deletion edge cases, Unicode, history composition,
 pasting, application callbacks, Kitty keys, narrow mode labels, clipboard
-snapshots/operation ordering/failures, platform clipboard readers, stale-paste
+snapshots/operation ordering/failures, Linux clipboard readers, stale-paste
 cancellation, result-only status messages, hardware cursor shapes, regular and
 fullscreen rendering, overlay focus, shutdown restoration, word boundaries,
 Unicode/atomic-paste motions, logical-line opening, native undo, and encoded keys.
