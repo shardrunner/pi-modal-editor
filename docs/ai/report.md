@@ -114,13 +114,29 @@ being run, then the production correction was validated. This was the earlier
 unbound-key policy; `I` is now an intentional line-start insert command, so its
 Kitty Shift+I regression now checks line-start insertion rather than rejection.
 
+## Finish review
+
+The fresh review found a hot-path problem in the new word motions: sending one
+native arrow per grapheme repeatedly rebuilt Pi's visual-line map and grapheme
+arrays. Native word jumps now handle ordinary runs; arrows remain for precise
+boundaries and real-paste probes. A deterministic 4,000-character-word regression
+limits each tested motion to at most four native input events. Unicode punctuation
+inside native word segments (`foo’bar`) retains the original grapheme fallback,
+with a separate regression preserving the existing small-word semantics.
+No new features or unrelated production fixes were added.
+
+Separate pre-existing issue, left unchanged: the mode label is appended to the
+last native render row, which can be an autocomplete suggestion rather than the
+bottom border while the menu is open.
+
 ## Validation
 
-- Modal: TypeScript check and all **88 tests** pass.
+- Modal: TypeScript check and all **90 tests** pass.
 - New editing regressions cover word/punctuation/whitespace boundaries, Unicode,
   wrapping, blank lines, real/literal paste markers, line opening at first/middle/
   last/empty lines, native undo of typing/newlines/clipboard insertion, autocomplete
-  dismissal, and Kitty/modifyOtherKeys encodings.
+  dismissal, Kitty/modifyOtherKeys encodings, bounded long-word native input calls,
+  and Unicode punctuation inside native word segments.
 - Clipboard regressions inject readers/writers, not the desktop clipboard. They
   cover Unicode/whitespace/empty text, external clipboard changes, copy/read
   ordering, failure recovery, stale-paste cancellation (including external draft

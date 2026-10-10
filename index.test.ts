@@ -91,6 +91,42 @@ test("w/b/e move across word, punctuation, and whitespace boundaries", () => {
   }
 });
 
+test("word motions preserve Unicode punctuation boundaries inside native word segments", () => {
+  const editor = create("foo’bar tail");
+  normal(editor);
+  keys(editor, "gg");
+  for (const col of [3, 4, 8, 12]) {
+    keys(editor, "w");
+    assert.deepEqual(editor.getCursor(), { line: 0, col });
+  }
+  for (const col of [8, 4, 3, 0]) {
+    keys(editor, "b");
+    assert.deepEqual(editor.getCursor(), { line: 0, col });
+  }
+  for (const col of [2, 3, 6, 11]) {
+    keys(editor, "e");
+    assert.deepEqual(editor.getCursor(), { line: 0, col });
+  }
+});
+
+test("long-word motions use bounded native input calls rather than one arrow per grapheme", () => {
+  const editor = new CustomEditor(tui, theme, bindings);
+  const native = editor.handleInput.bind(editor);
+  const calls: string[] = [];
+  editor.handleInput = (data) => { calls.push(data); native(data); };
+  addModalKeys(editor, tui, noClipboard);
+  editor.setText(`${"a".repeat(4000)}   next`);
+  editor.render(80);
+  normal(editor);
+  keys(editor, "gg");
+  for (const [key, col] of [["w", 4003], ["e", 4006], ["b", 4003], ["b", 0], ["e", 3999]] as const) {
+    calls.length = 0;
+    keys(editor, key);
+    assert.deepEqual(editor.getCursor(), { line: 0, col });
+    assert.ok(calls.length <= 4, `${key} sent ${calls.length} native input events`);
+  }
+});
+
 test("word motions cross blank lines, stay in the draft, and never browse history", () => {
   const editor = create("one\n\n  two\nlast");
   editor.addToHistory("older prompt");
