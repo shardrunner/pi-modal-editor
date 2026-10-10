@@ -1,21 +1,38 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { CustomEditor, getSelectListTheme, initTheme, type ExtensionAPI, type ExtensionContext, type ExtensionHandler, type ExtensionUIContext, type SessionStartEvent } from "@earendil-works/pi-coding-agent";
-import { CURSOR_MARKER, type EditorTheme, type TUI, visibleWidth } from "@earendil-works/pi-tui";
+import { CURSOR_MARKER, Input, TuiAltScreen, TuiMainScreen, type EditorTheme, type Terminal, type TUI, visibleWidth } from "@earendil-works/pi-tui";
 import { KeybindingsManager } from "./node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 import modalEditor, { addModalKeys } from "./index.ts";
 
 initTheme("dark", false);
 const theme: EditorTheme = { borderColor: (text) => text, selectList: getSelectListTheme() };
-const tui = { requestRender() {}, terminal: { rows: 30, columns: 80 } } as unknown as TUI;
+function fakeTui() {
+  let visible = false;
+  const writes: string[] = [];
+  return {
+    requestRender() {},
+    getShowHardwareCursor: () => visible,
+    setShowHardwareCursor: (value: boolean) => { visible = value; },
+    terminal: { rows: 30, columns: 80, write: (data: string) => { writes.push(data); } },
+    writes,
+  };
+}
+const tui = fakeTui() as unknown as TUI;
 const bindings = new KeybindingsManager();
 
-const noClipboard = {
-  copyToClipboard: async (_text: string) => {},
-  onClipboardStatus: (_message: string) => {},
-};
+function memoryClipboard() {
+  let text = "";
+  return {
+    copyToClipboard: async (value: string) => { text = value; },
+    readClipboard: async () => text,
+    onClipboardStatus: (_message: string) => {},
+  };
+}
+const noClipboard = memoryClipboard();
+const flush = () => new Promise((resolve) => setImmediate(resolve));
 
-function create(text: string, options: Parameters<typeof addModalKeys>[2] = noClipboard) {
+function create(text: string, options: Parameters<typeof addModalKeys>[2] = memoryClipboard()) {
   const editor = new CustomEditor(tui, theme, bindings);
   addModalKeys(editor, tui, options);
   editor.setText(text);
@@ -90,21 +107,23 @@ for (const [name, text, navigation, expected, line] of [
   });
 }
 
-test("yy copies the full draft; p/P insert it below/above; dd leaves both registers alone", () => {
+test("yy copies the full draft; p/P insert it below/above; dd leaves the clipboard and kill ring alone", async () => {
   const draft = "saved\ndelete\nlast";
   const editor = create(draft);
   normal(editor);
   keys(editor, "ggyyjddp");
+  await flush();
   assert.equal(editor.getText(), `saved\nlast\n${draft}`);
   assert.deepEqual(editor.getCursor(), { line: 2, col: 0 });
   keys(editor, "P");
+  await flush();
   assert.equal(editor.getText(), `saved\nlast\n${draft}\n${draft}`);
   const before = editor.getText();
   editor.handleInput("\x19"); // Ctrl+Y: native kill ring must still be empty.
   assert.equal(editor.getText(), before);
 });
 
-test("yy is independent of cursor position and does not change the draft or cursor", () => {
+test("yy is independent of cursor position and does not change the draft or cursor", async () => {
   const draft = " first\n界🙂 middle\nlast \n";
   const editor = create(draft);
   normal(editor);
@@ -116,22 +135,104 @@ test("yy is independent of cursor position and does not change the draft or curs
   assert.deepEqual(editor.getCursor(), cursor);
   editor.setText("target");
   keys(editor, "P");
+  await flush();
   assert.equal(editor.getText(), `${draft}\ntarget`);
   assert.deepEqual(editor.getCursor(), { line: 0, col: 0 });
 });
 
-test("p/P with no copied draft or an empty copied draft are no-ops", () => {
+test("p/P with an empty clipboard are no-ops", async () => {
   const editor = create("previous");
   normal(editor);
   keys(editor, "pP");
+  await flush();
   assert.equal(editor.getText(), "previous");
   keys(editor, "yy");
   editor.setText("");
   keys(editor, "yy");
   editor.setText("target");
   keys(editor, "pP");
+  await flush();
   assert.equal(editor.getText(), "target");
 });
+
+test("p/P read the current global clipboard, including changes outside yy", async () => {
+  let clipboard = " first\n界🙂 \n";
+  const editor = create("target", {
+    copyToClipboard: async (text) => { clipboard = text; },
+    readClipboard: async () => clipboard,
+  });
+  normal(editor);
+  keys(editor, "P");
+  await flush();
+  assert.equal(editor.getText(), " first\n界🙂 \n\ntarget");
+  assert.deepEqual(editor.getCursor(), { line: 0, col: 0 });
+  keys(editor, "yy");
+  await flush();
+  clipboard = "outside";
+  keys(editor, "Gp");
+  await flush();
+  assert.equal(editor.getText(), " first\n界🙂 \n\ntarget\noutside");
+  assert.deepEqual(editor.getCursor(), { line: 4, col: 0 });
+});
+
+test("p/P with no clipboard text are no-ops", async () => {
+  const editor = create("target", { readClipboard: async () => null });
+  normal(editor);
+  const cursor = editor.getCursor();
+  keys(editor, "pP");
+  await flush();
+  assert.equal(editor.getText(), "target");
+  assert.deepEqual(editor.getCursor(), cursor);
+});
+
+test("repeated clipboard pastes are serialized and read fresh text for each command", async () => {
+  let read = 0;
+  const editor = create("target", { readClipboard: async () => `paste ${++read}` });
+  normal(editor);
+  keys(editor, "pp");
+  await flush();
+  assert.equal(editor.getText(), "target\npaste 1\npaste 2");
+  assert.deepEqual(editor.getCursor(), { line: 2, col: 0 });
+});
+
+test("clipboard read errors do not fall back to a previous yy snapshot", async () => {
+  const errors: string[] = [];
+  const editor = create("saved", {
+    copyToClipboard: async () => {},
+    readClipboard: async () => { throw new Error("read unavailable"); },
+    onClipboardError: (message) => { errors.push(message); },
+  });
+  normal(editor);
+  keys(editor, "yy");
+  await flush();
+  editor.setText("target");
+  keys(editor, "P");
+  await flush();
+  assert.equal(editor.getText(), "target");
+  assert.deepEqual(errors, ["Failed to paste clipboard: read unavailable"]);
+});
+
+for (const change of ["text", "cursor", "input", "submission", "focus"] as const) {
+  test(`a slow clipboard paste is cancelled after ${change} changes`, async () => {
+    let finish!: (text: string) => void;
+    const read = new Promise<string>((resolve) => { finish = resolve; });
+    const editor = create("target", { readClipboard: () => read });
+    normal(editor);
+    keys(editor, "P");
+    await flush();
+    if (change === "text") editor.setText("changed");
+    else if (change === "cursor") keys(editor, "h");
+    else if (change === "input") keys(editor, "i!");
+    else if (change === "focus") editor.focused = !editor.focused;
+    else { editor.onSubmit = () => {}; editor.handleInput("\r"); }
+    const text = editor.getExpandedText();
+    const cursor = editor.getCursor();
+    finish("stale");
+    await flush();
+    assert.equal(editor.getExpandedText(), text);
+    assert.deepEqual(editor.getCursor(), cursor);
+  });
+}
 
 test("x deletes a grapheme, not a line break", () => {
   const editor = create("界🙂\nnext");
@@ -269,7 +370,7 @@ test("gg/G dismiss autocomplete; j/k retain native list navigation", async () =>
   assert.deepEqual(editor.getCursor(), { line: 1, col: 0 });
 });
 
-test("yy expands the entire draft and survives submission and paste-ID reuse", () => {
+test("yy expands the entire draft and survives submission and paste-ID reuse", async () => {
   const editor = create("prefix\n");
   const oldPaste = `${"A".repeat(2100)}\ntail A`;
   const newPaste = "B".repeat(2100);
@@ -283,10 +384,11 @@ test("yy expands the entire draft and survives submission and paste-ID reuse", (
   editor.handleInput(`\x1b[200~${newPaste}\x1b[201~`);
   normal(editor);
   keys(editor, "p");
+  await flush();
   assert.equal(editor.getExpandedText(), `${newPaste}\n${snapshot}`);
 });
 
-test("the copied draft survives native paste-marker deletion and renumbering", () => {
+test("the copied draft survives native paste-marker deletion and renumbering", async () => {
   const editor = create("");
   const first = "A".repeat(2100);
   const second = "B".repeat(2100);
@@ -298,6 +400,7 @@ test("the copied draft survives native paste-marker deletion and renumbering", (
   editor.handleInput("\x7f"); // Deletes the first marker and renumbers the second.
   normal(editor);
   keys(editor, "Gp");
+  await flush();
   assert.equal(editor.getExpandedText(), `\n${second}\n${first}\n${second}`);
 });
 
@@ -323,7 +426,7 @@ test("yy writes expanded Unicode, whitespace, and empty drafts to the system cli
   assert.deepEqual(copies, [draft, ""]);
 });
 
-test("clipboard failures are reported without losing the saved draft or blocking later copies", async () => {
+test("clipboard failures are reported without changing the clipboard or blocking later copies", async () => {
   const errors: string[] = [];
   const copies: string[] = [];
   const editor = create("saved", {
@@ -331,6 +434,7 @@ test("clipboard failures are reported without losing the saved draft or blocking
       copies.push(text);
       if (text === "saved") throw new Error("Clipboard unavailable: install wl-copy");
     },
+    readClipboard: async () => "external",
     onClipboardError: (message) => { errors.push(message); },
   });
   normal(editor);
@@ -338,10 +442,12 @@ test("clipboard failures are reported without losing the saved draft or blocking
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(errors, ["Failed to copy draft: Clipboard unavailable: install wl-copy"]);
   editor.setText("target");
-  keys(editor, "Pyy");
-  assert.equal(editor.getText(), "saved\ntarget");
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(copies, ["saved", "saved\ntarget"]);
+  keys(editor, "P");
+  await flush();
+  assert.equal(editor.getText(), "external\ntarget");
+  keys(editor, "yy");
+  await flush();
+  assert.deepEqual(copies, ["saved", "external\ntarget"]);
 });
 
 test("clipboard status confirms completion, clears stale success on failure, and reports empty copies", async () => {
@@ -359,14 +465,14 @@ test("clipboard status confirms completion, clears stale success on failure, and
   normal(editor);
   keys(editor, "yy");
   await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(statuses, ["Copying draft to clipboard…"]);
+  assert.deepEqual(statuses, []);
   finish();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(statuses.at(-1), "Copied draft to clipboard");
   editor.setText("fail");
   keys(editor, "yy");
   await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(statuses.slice(-2), ["Copying draft to clipboard…", "Clipboard copy failed"]);
+  assert.deepEqual(statuses, ["Copied draft to clipboard", "Clipboard copy failed"]);
   editor.setText("");
   keys(editor, "yy");
   await new Promise((resolve) => setImmediate(resolve));
@@ -394,23 +500,105 @@ test("clipboard writes finish in command order even when the first write is slow
   assert.deepEqual(copies, ["first", "second"]);
 });
 
-test("focused cursor is an underline in insert mode and a block in normal mode", () => {
-  const editor = create("界🙂é");
+test("focused cursor uses a hardware I-beam in insert mode and a block in normal mode", () => {
+  const terminalTui = fakeTui();
+  const editor = new CustomEditor(terminalTui as unknown as TUI, theme, bindings);
+  const dispose = addModalKeys(editor, terminalTui as unknown as TUI, noClipboard);
+  editor.setText("界🙂é");
   editor.focused = true;
+  assert.equal(terminalTui.getShowHardwareCursor(), true);
+  assert.equal(terminalTui.writes.at(-1), "\x1b[6 q");
   for (const navigation of ["gg", "l", "l", "$"]) {
     normal(editor);
     keys(editor, navigation);
     const block = editor.render(80);
-    assert.ok(block.some((line) => line.includes(`${CURSOR_MARKER}\x1b[7m`)));
+    assert.equal(terminalTui.writes.at(-1), "\x1b[2 q");
     keys(editor, "i");
-    const underline = editor.render(80);
-    assert.ok(underline.some((line) => line.includes(`${CURSOR_MARKER}\x1b[4m`)));
-    assert.ok(!underline.some((line) => line.includes(`${CURSOR_MARKER}\x1b[7m`)));
-    assert.deepEqual(underline.map((line) => line.replaceAll("\x1b[4m", "\x1b[7m")).slice(0, -1), block.slice(0, -1));
+    const beam = editor.render(80);
+    assert.equal(terminalTui.writes.at(-1), "\x1b[6 q");
+    assert.ok(beam.some((line) => line.includes(CURSOR_MARKER)));
+    assert.ok(!beam.some((line) => line.includes(`${CURSOR_MARKER}\x1b[7m`)));
+    assert.deepEqual(beam.slice(0, -1), block.slice(0, -1));
   }
   normal(editor);
   keys(editor, "a");
-  assert.ok(editor.render(80).some((line) => line.includes(`${CURSOR_MARKER}\x1b[4m`)));
+  assert.equal(terminalTui.writes.at(-1), "\x1b[6 q");
+  editor.focused = false;
+  assert.equal(terminalTui.getShowHardwareCursor(), false);
+  assert.equal(terminalTui.writes.at(-1), "\x1b[0 q");
+  editor.focused = true;
+  dispose();
+  assert.equal(terminalTui.getShowHardwareCursor(), false);
+  assert.equal(terminalTui.writes.at(-1), "\x1b[0 q");
+  const writes = terminalTui.writes.length;
+  dispose();
+  assert.equal(terminalTui.writes.length, writes);
+});
+
+for (const Tui of [TuiMainScreen, TuiAltScreen]) {
+  test(`${Tui.name} positions a visible I-beam and restores native overlay behavior`, () => {
+    const writes: string[] = [];
+    const terminal = {
+      rows: 30, columns: 80, kittyProtocolActive: false,
+      start() {}, stop() {},
+      write(data: string) { writes.push(data); },
+      hideCursor() { writes.push("\x1b[?25l"); },
+      showCursor() { writes.push("\x1b[?25h"); },
+      clearScreen() { writes.push("\x1b[2J"); },
+      moveBy() {},
+    } as unknown as Terminal;
+    const realTui = new Tui(terminal, false);
+    const editor = new CustomEditor(realTui, theme, bindings);
+    const dispose = addModalKeys(editor, realTui, noClipboard);
+    editor.setText("界🙂é");
+    realTui.addChild(editor);
+    try {
+      realTui.start();
+      realTui.setFocus(editor);
+      realTui.renderNow(true);
+      assert.ok(writes.join("").includes("\x1b[6 q"));
+      assert.ok(writes.at(-1)?.includes("\x1b[?25h"));
+      assert.ok(!writes.join("").includes(CURSOR_MARKER));
+      assert.ok(!writes.join("").includes("\x1b[7m"));
+      const overlay = realTui.showOverlay(new Input(), { width: 20 });
+      assert.equal(editor.focused, false);
+      assert.equal(realTui.getShowHardwareCursor(), false);
+      assert.equal(writes.at(-1), "\x1b[?25l");
+      assert.ok(writes.includes("\x1b[0 q"));
+      overlay.hide();
+      assert.equal(editor.focused, true);
+      assert.equal(realTui.getShowHardwareCursor(), true);
+      normal(editor);
+      realTui.renderNow();
+      assert.ok(writes.join("").includes("\x1b[2 q"));
+    } finally {
+      dispose();
+      realTui.stop();
+    }
+  });
+}
+
+test("cursor focus decoration preserves existing accessors and visibility", () => {
+  const terminalTui = fakeTui();
+  terminalTui.setShowHardwareCursor(true);
+  const editor = new CustomEditor(terminalTui as unknown as TUI, theme, bindings);
+  let focused = false;
+  let assignments = 0;
+  Object.defineProperty(editor, "focused", {
+    configurable: true,
+    get: () => focused,
+    set: (value: boolean) => { focused = value; assignments++; },
+  });
+  const dispose = addModalKeys(editor, terminalTui as unknown as TUI, noClipboard);
+  editor.focused = true;
+  editor.focused = false;
+  assert.equal(focused, false);
+  assert.equal(assignments, 2);
+  assert.equal(terminalTui.getShowHardwareCursor(), true);
+  dispose();
+  editor.focused = true;
+  assert.equal(assignments, 3);
+  assert.equal(terminalTui.writes.at(-1), "\x1b[0 q");
 });
 
 test("cursor styling preserves unrelated inverse text and cached render output", () => {
@@ -419,9 +607,9 @@ test("cursor styling preserves unrelated inverse text and cached render output",
   const snapshot = [...original];
   editor.render = () => original;
   addModalKeys(editor, tui, noClipboard);
-  assert.equal(editor.render(40)[0], `\x1b[7mselected\x1b[0m ${CURSOR_MARKER}\x1b[4m界\x1b[0m`);
+  assert.equal(editor.render(40)[0], `\x1b[7mselected\x1b[0m ${CURSOR_MARKER}界\x1b[0m`);
   normal(editor);
-  assert.equal(editor.render(40)[0], snapshot[0]);
+  assert.equal(editor.render(40)[0], `\x1b[7mselected\x1b[0m ${CURSOR_MARKER}界\x1b[0m`);
   assert.deepEqual(original, snapshot);
 });
 
@@ -468,6 +656,7 @@ test("wraps an existing editor factory without replacing its history behavior", 
   assert.doesNotThrow(() => keys(created, "yy"));
   created.setText("target");
   keys(created, "P");
+  await flush();
   assert.equal(created.getExpandedText(), `${"A".repeat(2100)}\ntarget`);
 });
 
@@ -541,6 +730,7 @@ test("extension reports clipboard results through Pi's status line and UI", asyn
   let fail = true;
   modalEditor({ on(_name: string, handler: unknown) { start = handler as typeof start; } } as unknown as ExtensionAPI, {
     copyToClipboard: async () => { if (fail) throw new Error("Clipboard unavailable"); },
+    readClipboard: async () => "global",
   });
   let factory: Parameters<ExtensionUIContext["setEditorComponent"]>[0];
   const notifications: [string, string | undefined][] = [];
@@ -562,16 +752,45 @@ test("extension reports clipboard results through Pi's status line and UI", asyn
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(notifications, [["Failed to copy draft: Clipboard unavailable", "error"]]);
   keys(editor, "p");
-  assert.equal(editor.getText(), "draft\ndraft");
-  assert.deepEqual(statuses, [
-    ["modal-editor-clipboard", "Copying draft to clipboard…"],
-    ["modal-editor-clipboard", "Clipboard copy failed"],
-  ]);
+  await flush();
+  assert.equal(editor.getText(), "draft\nglobal");
+  assert.deepEqual(statuses, [["modal-editor-clipboard", "Clipboard copy failed"]]);
   fail = false;
   keys(editor, "yy");
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(statuses.at(-1), ["modal-editor-clipboard", "Copied draft to clipboard"]);
   assert.equal(notifications.length, 1);
+});
+
+test("session shutdown restores the cursor and cancels pending clipboard pastes", async () => {
+  const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
+  let finish!: (text: string) => void;
+  const read = new Promise<string>((resolve) => { finish = resolve; });
+  modalEditor({
+    on(name: string, handler: (event: unknown, ctx: unknown) => unknown) { handlers.set(name, handler); },
+  } as unknown as ExtensionAPI, { ...noClipboard, readClipboard: () => read });
+  const terminalTui = fakeTui();
+  let factory: Parameters<ExtensionUIContext["setEditorComponent"]>[0];
+  const ctx = {
+    mode: "tui",
+    ui: {
+      getEditorComponent: () => factory,
+      setEditorComponent: (next: typeof factory) => { factory = next; },
+    },
+  } as unknown as ExtensionContext;
+  await handlers.get("session_start")!({ type: "session_start", reason: "startup" }, ctx);
+  const editor = factory!(terminalTui as unknown as TUI, theme, bindings) as CustomEditor;
+  editor.setText("target");
+  editor.focused = true;
+  normal(editor);
+  keys(editor, "P");
+  await flush();
+  await handlers.get("session_shutdown")!({ type: "session_shutdown" }, ctx);
+  assert.equal(terminalTui.getShowHardwareCursor(), false);
+  assert.equal(terminalTui.writes.at(-1), "\x1b[0 q");
+  finish("stale");
+  await flush();
+  assert.equal(editor.getText(), "target");
 });
 
 test("does nothing outside TUI mode", async () => {
