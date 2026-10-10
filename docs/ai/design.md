@@ -66,18 +66,26 @@ read_when:
   Shift on printable Kitty commands and forward parsed control keys to native
   handling rather than interpreting them through the printable decoder.
 - Pi resets extension UI before session replacement and reload; every
-  `session_start` installs a fresh factory. Both-order tests use the actual packages and Pi 1.1.0 loader.
-  Their synthetic native-history setup does not prove the host populates history
-  correctly on actual lifecycle transitions. Live Pi 1.1.0 checks reproduce native
-  history loss after resume/fork/reload and preloaded new sessions, including with
-  baseline shared seeding; startup and the no-modal control work. This separate
-  host/modal issue needs approval before a fix. Likely cause: Pi's custom-editor
-  setter copies text/handlers, not hidden history; startup populates history after
-  binding, but replacement/reload can render before modal creates its editor. Do
-  not copy private history or restore shared seeding as a workaround. Live tmux
-  reproduction: `pi-shared-prompt-history/docs/ai/command-only-history-validation.md`.
+  `session_start` installs a fresh factory. Pi 1.1.0 keeps Up history in the
+  editor instance, and `setCustomEditorComponent()` copies text/handlers but not
+  history. New/resume/fork populate the native editor before `session_start`;
+  reload never repopulates. So the factory replays the session's user prompts
+  (`buildContextEntries()` + `sessionEntryToContextMessages()`, text parts only,
+  mirroring `renderInitialMessages()`) via public `addToHistory()`, except on
+  `startup`, where Pi populates after `session_start` and a replay would duplicate
+  entries. Never copy private editor history. Accepted gap: `!bash`/slash commands
+  are not session entries and are lost from Up history on reload. Live tmux
+  reproduction of the original loss:
+  `pi-shared-prompt-history/docs/ai/command-only-history-validation.md`.
 - Deferred: component-level paste plus trailing input in one packet; Pi's
   terminal input buffer separates those packets in normal use.
+
+## Future work
+
+- Upstream Pi: have `setCustomEditorComponent()` carry the previous editor's Up
+  history into the replacement (Pi owns both editors). This fixes every custom
+  editor, including commands lost on reload. Then delete `restoreHistory()` and
+  its startup special case.
 
 Validation: `npm run check` runs TypeScript checking and real-editor tests for
 modes, native movement, deletion edge cases, Unicode, shared-history independence,

@@ -42,7 +42,8 @@ for (const historyFirst of [true, false]) {
     const { extensions, errors } = loader.getExtensions();
     assert.deepEqual(errors, []);
     assert.deepEqual(extensions.map((extension) => dirname(extension.path)), packages);
-    const history = extensions.find((extension) => extension.commands.has("history"))!.commands.get("history")!;
+    const historyExtension = extensions.find((extension) => extension.commands.has("history"))!;
+    const history = historyExtension.commands.get("history")!;
     const bindings = new KeybindingsManager();
     const editorTheme: EditorTheme = { borderColor: (text) => text, selectList: getSelectListTheme() };
     const pickerTheme = { fg: (_role: string, text: string) => text } as Theme;
@@ -57,6 +58,9 @@ for (const historyFirst of [true, false]) {
     const restored: string[] = [];
     const ctx = {
       mode: "tui",
+      sessionManager: {
+        buildContextEntries: () => [{ type: "message", message: { role: "user", content: "native-local-only" } }],
+      },
       ui: {
         getEditorComponent() {
           assert.notEqual(dirname(owner), sharedPath, "shared history must not inspect the editor");
@@ -102,8 +106,9 @@ for (const historyFirst of [true, false]) {
       for (const key of "0x") editor.handleInput(key);
       assert.equal(editor.getText(), "ello", "x must execute once");
 
-      // Model Pi's own history population, not shared-history behavior.
-      editor.addToHistory("native-local-only");
+      // Pi populates the startup editor after session_start; modal restores the
+      // session's prompts itself on replacement and reload.
+      if (reason === "startup") editor.addToHistory("native-local-only");
       let seeded = 0;
       const addToHistory = editor.addToHistory.bind(editor);
       editor.addToHistory = (text) => { seeded++; addToHistory(text); };
@@ -117,6 +122,7 @@ for (const historyFirst of [true, false]) {
         }
       };
       checkNative();
+      owner = historyExtension.path;
       await history.handler("unique-shared-only", ctx);
       assert.deepEqual(restored, [sharedOnly]);
       assert.equal(editor.getText(), sharedOnly);

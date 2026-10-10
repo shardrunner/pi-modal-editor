@@ -1,4 +1,4 @@
-import { copyToClipboard, CustomEditor, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { copyToClipboard, CustomEditor, sessionEntryToContextMessages, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { CURSOR_MARKER, decodeKittyPrintable, isKeyRelease, matchesKey, parseKey, truncateToWidth, visibleWidth, type TUI } from "@earendil-works/pi-tui";
 
 import { readSystemClipboard } from "./clipboard.ts";
@@ -210,14 +210,32 @@ export function addModalKeys(editor: CustomEditor, tui: TUI, options: ModalEdito
   };
 }
 
+/**
+ * Pi keeps Up history inside the editor and does not copy it to a replacement.
+ * On new/resume/fork it fills the native editor before session_start; on reload
+ * it never refills. Replay the same user prompts Pi's renderInitialMessages() uses.
+ * TODO: remove once Pi carries history over in setCustomEditorComponent().
+ */
+function restoreHistory(editor: CustomEditor, sessionManager: ExtensionContext["sessionManager"]): void {
+  for (const entry of sessionManager.buildContextEntries()) {
+    for (const message of sessionEntryToContextMessages(entry)) {
+      if (message.role !== "user") continue;
+      editor.addToHistory(typeof message.content === "string" ? message.content :
+        message.content.flatMap((part) => part.type === "text" ? [part.text] : []).join(""));
+    }
+  }
+}
+
 export default function (pi: ExtensionAPI, options: ModalEditorOptions = {}): void {
   let dispose: (() => void) | undefined;
   pi.on("session_shutdown", () => { dispose?.(); dispose = undefined; });
-  pi.on("session_start", (_event, ctx) => {
+  pi.on("session_start", (event, ctx) => {
     if (ctx.mode !== "tui") return;
     // Replaces Pi's editor outright; no other installed package owns the editor.
     ctx.ui.setEditorComponent((tui, theme, bindings) => {
       const editor = new CustomEditor(tui, theme, bindings);
+      // Pi populates history after startup's session_start; replaying would duplicate it.
+      if (event.reason !== "startup") restoreHistory(editor, ctx.sessionManager);
       dispose?.();
       dispose = addModalKeys(editor, tui, {
         ...options,

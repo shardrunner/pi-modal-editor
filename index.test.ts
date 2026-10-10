@@ -867,13 +867,13 @@ test("mode label fits even very narrow editor widths", () => {
 
 type Factory = Parameters<ExtensionUIContext["setEditorComponent"]>[0];
 /** Load the extension into a fake Pi whose UI records the installed editor factory. */
-function loadExtension(options: Parameters<typeof modalEditor>[1] = noClipboard, ui: Record<string, unknown> = {}) {
+function loadExtension(options: Parameters<typeof modalEditor>[1] = noClipboard, ui: Record<string, unknown> = {}, entries: unknown[] = []) {
   const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
   modalEditor({
     on(name: string, handler: (event: unknown, ctx: unknown) => unknown) { handlers.set(name, handler); },
   } as unknown as ExtensionAPI, options);
   const pi: { factory: Factory; installations: number } = { factory: undefined, installations: 0 };
-  const ctx = { mode: "tui", ui: {
+  const ctx = { mode: "tui", sessionManager: { buildContextEntries: () => entries }, ui: {
     setEditorComponent: (next: Factory) => { pi.factory = next; pi.installations++; },
     ...ui,
   } } as unknown as ExtensionContext;
@@ -911,6 +911,29 @@ test("each TUI session start installs one native editor with modal keys", async 
   }
   assert.equal(pi.installations, 5);
 });
+test("session replacement and reload restore Pi's native Up history; startup leaves it to Pi", async () => {
+  const message = (role: string, content: unknown) => ({ type: "message", message: { role, content } });
+  const pi = loadExtension(noClipboard, {}, [
+    message("user", "Explain this code"),
+    message("assistant", [{ type: "text", text: "Sure" }]),
+    message("user", [{ type: "text", text: "Fix " }, { type: "image", data: "", mimeType: "image/png" }, { type: "text", text: "the test" }]),
+    { type: "model_change" },
+  ]);
+  for (const reason of ["new", "resume", "fork", "reload"]) {
+    await pi.start(reason);
+    const editor = pi.editor();
+    for (const expected of ["Fix the test", "Explain this code", "Explain this code"]) {
+      editor.handleInput("\x1b[A");
+      assert.equal(editor.getText(), expected, reason);
+    }
+  }
+  // Pi populates the startup editor itself after session_start; replaying would duplicate entries.
+  await pi.start("startup");
+  const editor = pi.editor();
+  editor.handleInput("\x1b[A");
+  assert.equal(editor.getText(), "");
+});
+
 test("extension reports clipboard results through Pi's status line and UI", async () => {
   let fail = true;
   const notifications: [string, string | undefined][] = [];

@@ -99,13 +99,13 @@ these two packages work in either relative order. Native Up/Down (and modal `j`/
 and shared `/history` lookup are separate: choosing a shared prompt replaces the
 draft without submitting it or importing it into native history.
 
-**Known Pi 1.1.0 lifecycle limitation:** with modal enabled, live TUI checks found
-native session-history loss after resume, fork, reload, and a new session with
-preloaded messages. Initial startup works. This also occurs with the old
-shared-history implementation, where shared seeding can mask the missing native
-entries. Removing seeding exposes it; `/history` remains available. A separate
-host/modal lifecycle fix is not included here. The live reproduction is recorded in
-`pi-shared-prompt-history/docs/ai/command-only-history-validation.md`.
+**Native Up history across session changes:** Pi 1.1.0 keeps Up history inside
+the editor and does not copy it to a replacement editor. On new, resume, fork, and
+reload, modal therefore refills its editor with the session's user prompts, the
+same entries Pi itself loads. On startup Pi fills it after installation, so modal
+skips the refill. Remaining gap: after `/reload`, `!bash` commands and slash
+commands typed earlier are no longer in Up history, because Pi never stores them
+in the session. `/history` is unaffected.
 
 ## Development
 
@@ -119,4 +119,5 @@ agent directory. They run with a sibling `../pi-shared-prompt-history` checkout,
 or set `PI_SHARED_HISTORY_PACKAGE=/absolute/path/to/pi-shared-prompt-history`.
 Without either, only those two integration tests are skipped; there is no
 cross-repository production dependency. They check both load orders and simulated
-lifecycle UI resets, not Pi's real native-history population during session changes.
+lifecycle UI resets with a synthetic session; startup ordering of Pi's own history
+population is modeled, not exercised.
