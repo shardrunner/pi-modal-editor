@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { CustomEditor, getSelectListTheme, initTheme, type ExtensionAPI, type ExtensionContext, type ExtensionHandler, type ExtensionUIContext, type SessionStartEvent } from "@earendil-works/pi-coding-agent";
+import { CustomEditor, getSelectListTheme, initTheme, type ExtensionAPI, type ExtensionContext, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { CURSOR_MARKER, Input, TuiAltScreen, TuiMainScreen, type EditorTheme, type Terminal, type TUI, visibleWidth } from "@earendil-works/pi-tui";
 import { KeybindingsManager } from "./node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 import modalEditor, { addModalKeys } from "./index.ts";
@@ -291,21 +291,27 @@ test("u undoes a clipboard insertion atomically without changing the clipboard",
   assert.equal(await clipboard.readClipboard(), "copied\ntext");
 });
 
-test("new commands dismiss autocomplete without applying a completion or submitting", async () => {
-  for (const key of ["w", "b", "e", "I", "A", "o", "O", "u"]) {
-    const editor = create("first\nlast");
+function withAutocomplete(editor: CustomEditor) {
+  editor.setAutocompleteProvider({
+    async getSuggestions() { return { prefix: "", items: [{ value: "one", label: "one" }, { value: "two", label: "two" }] }; },
+    applyCompletion() { throw new Error("unexpected completion"); },
+  });
+  return editor;
+}
+
+test("commands dismiss autocomplete without applying a completion or submitting", async () => {
+  const targets: Record<string, { line: number; col: number }> = { gg: { line: 0, col: 0 }, G: { line: 1, col: 0 } };
+  for (const key of ["w", "b", "e", "I", "A", "o", "O", "u", "gg", "G"]) {
+    const editor = withAutocomplete(create("first\nlast"));
     let submissions = 0;
     editor.onSubmit = () => { submissions++; };
-    editor.setAutocompleteProvider({
-      async getSuggestions() { return { prefix: "", items: [{ value: "one", label: "one" }, { value: "two", label: "two" }] }; },
-      applyCompletion() { throw new Error("unexpected completion"); },
-    });
     normal(editor);
     editor.handleInput("\t");
     await flush();
     assert.equal(editor.isShowingAutocomplete(), true);
     keys(editor, key);
     assert.equal(editor.isShowingAutocomplete(), false, `${key} must dismiss autocomplete`);
+    if (targets[key]) assert.deepEqual(editor.getCursor(), targets[key]);
     assert.equal(submissions, 0);
   }
 });
@@ -602,30 +608,16 @@ test("modifyOtherKeys printable input obeys normal-mode commands and ignores oth
   assert.equal(clears, 1);
 });
 
-test("gg/G dismiss autocomplete; j/k retain native list navigation", async () => {
-  const editor = create("first\nlast");
-  editor.setAutocompleteProvider({
-    async getSuggestions() {
-      return { prefix: "", items: [{ value: "one", label: "one" }, { value: "two", label: "two" }] };
-    },
-    applyCompletion() { throw new Error("unexpected completion"); },
-  });
+test("j/k retain native autocomplete list navigation", async () => {
+  const editor = withAutocomplete(create("first\nlast"));
   normal(editor);
   editor.handleInput("\t");
-  await new Promise((resolve) => setImmediate(resolve));
+  await flush();
   assert.equal(editor.isShowingAutocomplete(), true);
   const before = editor.getCursor();
   keys(editor, "k");
   assert.deepEqual(editor.getCursor(), before);
-  keys(editor, "gg");
-  assert.equal(editor.isShowingAutocomplete(), false);
-  assert.deepEqual(editor.getCursor(), { line: 0, col: 0 });
-  editor.handleInput("\t");
-  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(editor.isShowingAutocomplete(), true);
-  keys(editor, "G");
-  assert.equal(editor.isShowingAutocomplete(), false);
-  assert.deepEqual(editor.getCursor(), { line: 1, col: 0 });
 });
 
 test("yy expands the entire draft and survives submission and paste-ID reuse", async () => {
@@ -673,14 +665,14 @@ test("yy writes expanded Unicode, whitespace, and empty drafts to the system cli
   normal(editor);
   const cursor = editor.getCursor();
   keys(editor, "y");
-  await new Promise((resolve) => setImmediate(resolve));
+  await flush();
   assert.deepEqual(copies, []);
   keys(editor, "y");
   assert.equal(editor.getExpandedText(), draft);
   assert.deepEqual(editor.getCursor(), cursor);
   editor.setText("");
   keys(editor, "yy");
-  await new Promise((resolve) => setImmediate(resolve));
+  await flush();
   assert.deepEqual(copies, [draft, ""]);
 });
 
@@ -697,7 +689,7 @@ test("clipboard failures are reported without changing the clipboard or blocking
   });
   normal(editor);
   keys(editor, "yy");
-  await new Promise((resolve) => setImmediate(resolve));
+  await flush();
   assert.deepEqual(errors, ["Failed to copy draft: Clipboard unavailable: install wl-copy"]);
   editor.setText("target");
   keys(editor, "P");
@@ -722,18 +714,18 @@ test("clipboard status confirms completion, clears stale success on failure, and
   });
   normal(editor);
   keys(editor, "yy");
-  await new Promise((resolve) => setImmediate(resolve));
+  await flush();
   assert.deepEqual(statuses, []);
   finish();
-  await new Promise((resolve) => setImmediate(resolve));
+  await flush();
   assert.equal(statuses.at(-1), "Copied draft to clipboard");
   editor.setText("fail");
   keys(editor, "yy");
-  await new Promise((resolve) => setImmediate(resolve));
+  await flush();
   assert.deepEqual(statuses, ["Copied draft to clipboard", "Clipboard copy failed"]);
   editor.setText("");
   keys(editor, "yy");
-  await new Promise((resolve) => setImmediate(resolve));
+  await flush();
   assert.equal(statuses.at(-1), "Clipboard cleared");
 });
 
@@ -751,10 +743,10 @@ test("clipboard writes finish in command order even when the first write is slow
   keys(editor, "yy");
   editor.setText("second");
   keys(editor, "yy");
-  await new Promise((resolve) => setImmediate(resolve));
+  await flush();
   assert.deepEqual(copies, []);
   finish();
-  await new Promise((resolve) => setImmediate(resolve));
+  await flush();
   assert.deepEqual(copies, ["first", "second"]);
 });
 
@@ -873,25 +865,36 @@ test("mode label fits even very narrow editor widths", () => {
   }
 });
 
+type Factory = Parameters<ExtensionUIContext["setEditorComponent"]>[0];
+/** Load the extension into a fake Pi whose UI stores the installed editor factory. */
+function loadExtension(options: Parameters<typeof modalEditor>[1] = noClipboard, ui: Record<string, unknown> = {}) {
+  const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
+  modalEditor({
+    on(name: string, handler: (event: unknown, ctx: unknown) => unknown) { handlers.set(name, handler); },
+  } as unknown as ExtensionAPI, options);
+  const pi: { factory: Factory; installations: number } = { factory: undefined, installations: 0 };
+  const ctx = { mode: "tui", ui: {
+    getEditorComponent: () => pi.factory,
+    setEditorComponent: (next: Factory) => { pi.factory = next; pi.installations++; },
+    ...ui,
+  } } as unknown as ExtensionContext;
+  return Object.assign(pi, {
+    start: async (reason = "startup", context = ctx) => { await handlers.get("session_start")!({ type: "session_start", reason }, context); },
+    shutdown: async () => { await handlers.get("session_shutdown")!({ type: "session_shutdown" }, ctx); },
+    editor: (terminal = tui) => pi.factory!(terminal, theme, bindings) as CustomEditor,
+  });
+}
+
 test("wraps an existing editor factory without replacing its history behavior", async () => {
-  let start!: ExtensionHandler<SessionStartEvent>;
-  modalEditor({ on(_name: string, handler: unknown) { start = handler as typeof start; } } as unknown as ExtensionAPI, noClipboard);
+  const pi = loadExtension();
   let created!: CustomEditor;
-  let factory: Parameters<ExtensionUIContext["setEditorComponent"]>[0] = (tui, theme, bindings) => {
+  pi.factory = (tui, theme, bindings) => {
     created = new CustomEditor(tui, theme, bindings);
     created.addToHistory("custom-factory prompt");
     return created;
   };
-  const ctx = {
-    mode: "tui",
-    ui: {
-      getEditorComponent: () => factory,
-      setEditorComponent: (next: typeof factory) => { factory = next; },
-    },
-  } as unknown as ExtensionContext;
-  await start({ type: "session_start", reason: "startup" }, ctx);
-  const editor = factory!(tui, theme, bindings);
-  assert.equal(editor, created);
+  await pi.start();
+  assert.equal(pi.editor(), created);
   normal(created);
   keys(created, "k");
   assert.equal(created.getText(), "custom-factory prompt");
@@ -918,21 +921,11 @@ test("dd preserves other collapsed pastes and their expanded content", () => {
 });
 
 test("a native editor is created when no custom factory exists; repeated starts do not double-wrap", async () => {
-  let start!: ExtensionHandler<SessionStartEvent>;
-  modalEditor({ on(_name: string, handler: unknown) { start = handler as typeof start; } } as unknown as ExtensionAPI, noClipboard);
-  let factory: Parameters<ExtensionUIContext["setEditorComponent"]>[0];
-  let installations = 0;
-  const ctx = {
-    mode: "tui",
-    ui: {
-      getEditorComponent: () => factory,
-      setEditorComponent: (next: typeof factory) => { factory = next; installations++; },
-    },
-  } as unknown as ExtensionContext;
-  await start({ type: "session_start", reason: "startup" }, ctx);
-  await start({ type: "session_start", reason: "new" }, ctx);
-  assert.equal(installations, 1);
-  const editor = factory!(tui, theme, bindings) as CustomEditor;
+  const pi = loadExtension();
+  await pi.start("startup");
+  await pi.start("new");
+  assert.equal(pi.installations, 1);
+  const editor = pi.editor();
   editor.setText("hello");
   normal(editor);
   keys(editor, "0x");
@@ -940,26 +933,17 @@ test("a native editor is created when no custom factory exists; repeated starts 
 });
 
 test("generic custom-factory composition gets a fresh factory after Pi's lifecycle UI reset", async () => {
-  let start!: ExtensionHandler<SessionStartEvent>;
-  modalEditor({ on(_name: string, handler: unknown) { start = handler as typeof start; } } as unknown as ExtensionAPI, noClipboard);
-  let factory: Parameters<ExtensionUIContext["setEditorComponent"]>[0];
-  const ctx = {
-    mode: "tui",
-    ui: {
-      getEditorComponent: () => factory,
-      setEditorComponent: (next: typeof factory) => { factory = next; },
-    },
-  } as unknown as ExtensionContext;
-  for (const reason of ["startup", "new", "resume", "fork", "reload"] as const) {
-    factory = undefined; // InteractiveMode.resetExtensionUI(), before session_start.
+  const pi = loadExtension();
+  for (const reason of ["startup", "new", "resume", "fork", "reload"]) {
+    // InteractiveMode.resetExtensionUI() clears the factory before session_start.
     const snapshot = `history for ${reason}`;
-    factory = (tui, theme, bindings) => {
+    pi.factory = (tui, theme, bindings) => {
       const editor = new CustomEditor(tui, theme, bindings);
       editor.addToHistory(snapshot);
       return editor;
     };
-    await start({ type: "session_start", reason }, ctx);
-    const editor = factory!(tui, theme, bindings) as CustomEditor;
+    await pi.start(reason);
+    const editor = pi.editor();
     let aborted = 0;
     editor.onEscape = () => { aborted++; };
     normal(editor);
@@ -973,30 +957,22 @@ test("generic custom-factory composition gets a fresh factory after Pi's lifecyc
 });
 
 test("extension reports clipboard results through Pi's status line and UI", async () => {
-  let start!: ExtensionHandler<SessionStartEvent>;
   let fail = true;
-  modalEditor({ on(_name: string, handler: unknown) { start = handler as typeof start; } } as unknown as ExtensionAPI, {
-    copyToClipboard: async () => { if (fail) throw new Error("Clipboard unavailable"); },
-    readClipboard: async () => "global",
-  });
-  let factory: Parameters<ExtensionUIContext["setEditorComponent"]>[0];
   const notifications: [string, string | undefined][] = [];
   const statuses: [string, string][] = [];
-  const ctx = {
-    mode: "tui",
-    ui: {
-      getEditorComponent: () => factory,
-      setEditorComponent: (next: typeof factory) => { factory = next; },
-      notify: (message: string, type?: string) => { notifications.push([message, type]); },
-      setStatus: (key: string, message: string) => { statuses.push([key, message]); },
-    },
-  } as unknown as ExtensionContext;
-  await start({ type: "session_start", reason: "startup" }, ctx);
-  const editor = factory!(tui, theme, bindings) as CustomEditor;
+  const pi = loadExtension({
+    copyToClipboard: async () => { if (fail) throw new Error("Clipboard unavailable"); },
+    readClipboard: async () => "global",
+  }, {
+    notify: (message: string, type?: string) => { notifications.push([message, type]); },
+    setStatus: (key: string, message: string) => { statuses.push([key, message]); },
+  });
+  await pi.start();
+  const editor = pi.editor();
   editor.setText("draft");
   normal(editor);
   keys(editor, "yy");
-  await new Promise((resolve) => setImmediate(resolve));
+  await flush();
   assert.deepEqual(notifications, [["Failed to copy draft: Clipboard unavailable", "error"]]);
   keys(editor, "p");
   await flush();
@@ -1004,35 +980,24 @@ test("extension reports clipboard results through Pi's status line and UI", asyn
   assert.deepEqual(statuses, [["modal-editor-clipboard", "Clipboard copy failed"]]);
   fail = false;
   keys(editor, "yy");
-  await new Promise((resolve) => setImmediate(resolve));
+  await flush();
   assert.deepEqual(statuses.at(-1), ["modal-editor-clipboard", "Copied draft to clipboard"]);
   assert.equal(notifications.length, 1);
 });
 
 test("session shutdown restores the cursor and cancels pending clipboard pastes", async () => {
-  const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
   let finish!: (text: string) => void;
   const read = new Promise<string>((resolve) => { finish = resolve; });
-  modalEditor({
-    on(name: string, handler: (event: unknown, ctx: unknown) => unknown) { handlers.set(name, handler); },
-  } as unknown as ExtensionAPI, { ...noClipboard, readClipboard: () => read });
+  const pi = loadExtension({ ...noClipboard, readClipboard: () => read });
   const terminalTui = fakeTui();
-  let factory: Parameters<ExtensionUIContext["setEditorComponent"]>[0];
-  const ctx = {
-    mode: "tui",
-    ui: {
-      getEditorComponent: () => factory,
-      setEditorComponent: (next: typeof factory) => { factory = next; },
-    },
-  } as unknown as ExtensionContext;
-  await handlers.get("session_start")!({ type: "session_start", reason: "startup" }, ctx);
-  const editor = factory!(terminalTui as unknown as TUI, theme, bindings) as CustomEditor;
+  await pi.start();
+  const editor = pi.editor(terminalTui as unknown as TUI);
   editor.setText("target");
   editor.focused = true;
   normal(editor);
   keys(editor, "P");
   await flush();
-  await handlers.get("session_shutdown")!({ type: "session_shutdown" }, ctx);
+  await pi.shutdown();
   assert.equal(terminalTui.getShowHardwareCursor(), false);
   assert.equal(terminalTui.writes.at(-1), "\x1b[0 q");
   finish("stale");
@@ -1041,9 +1006,9 @@ test("session shutdown restores the cursor and cancels pending clipboard pastes"
 });
 
 test("does nothing outside TUI mode", async () => {
-  let start!: ExtensionHandler<SessionStartEvent>;
-  modalEditor({ on(_name: string, handler: unknown) { start = handler as typeof start; } } as unknown as ExtensionAPI, noClipboard);
+  const pi = loadExtension();
   for (const mode of ["rpc", "print", "json"] as const) {
-    await start({ type: "session_start", reason: "startup" }, { mode } as ExtensionContext);
+    await pi.start("startup", { mode } as ExtensionContext);
   }
+  assert.equal(pi.installations, 0);
 });
