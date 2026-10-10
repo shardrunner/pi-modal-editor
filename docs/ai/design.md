@@ -21,15 +21,12 @@ read_when:
   avoid Pi's kill ring, at the cost of character-sized native undo steps.
 - Movement follows native visual rows. Deletion and paste placement use logical
   lines; `yy` copies the entire current prompt draft regardless of cursor position.
-- Add `w`/`b`/`e` small-word motions through native word jumps, using arrows for
-  exact boundaries and atomic-marker probes. Avoid an arrow event per grapheme
-  for ordinary long words: Pi rebuilds visual layout on every arrow. Unicode
-  letters, numbers, and `_` form word runs; punctuation/emoji form other runs.
-  Cache mixed native-word spans per visited line for the current command and use
-  the original grapheme fallback where native segmentation includes punctuation
-  inside a word (e.g. `foo’bar`). Whitespace separates runs across logical/blank
-  lines. Never browse history or split graphemes. Probe marker-shaped text to
-  distinguish real collapsed pastes from literal lookalikes; no private paste IDs.
+- Compose `w`/`b`/`e` from native word jumps plus single arrows; never an arrow
+  per grapheme (Pi rebuilds visual layout on every arrow). Accept Pi's word
+  segmentation instead of separate Vim word classes, so a second classifier
+  cannot disagree with native jumps. Only continue across Intl splits between
+  adjacent letters/numbers. Line ends count as whitespace. Native jumps keep
+  graphemes and real paste markers atomic; no private paste IDs.
 - `u` forwards native Ctrl+- undo. `I`/`A` insert at logical column 0/end, and
   `o`/`O` open a line below/above via atomic public `insertTextAtCursor("\\n")`.
   Dismiss autocomplete first, never submit, then enter insert mode. Keep native

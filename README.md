@@ -60,10 +60,12 @@ way. On focus loss or session shutdown, the extension requests the terminal's
 default cursor shape and restores Pi's previous hardware-cursor visibility.
 Existing custom-editor focus accessors are preserved.
 
-`w`/`b`/`e` use small-word boundaries: Unicode letters, numbers, and `_` form
-words; punctuation/emoji form separate runs; whitespace separates both. Motions
-cross logical lines and blank lines without browsing history and are independent
-of visual wrapping. Graphemes and real collapsed paste markers remain atomic.
+`w`/`b`/`e` follow Pi's native word jumps (Alt+F/Alt+B): ASCII punctuation
+separates words, Unicode punctuation inside a word (`foo’bar`) does not, and `_`
+next to punctuation joins the punctuation run. Adjacent letters and numbers stay
+one word even where Unicode segmentation splits them (e.g. Latin next to CJK).
+Motions cross logical lines and blank lines without browsing history and are
+independent of visual wrapping. Graphemes and real collapsed paste markers remain atomic.
 At the prompt boundary, `w` may reach the end-of-line insertion position; `e`
 stays put when there is no following word.
 

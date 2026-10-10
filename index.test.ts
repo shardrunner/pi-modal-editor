@@ -91,23 +91,23 @@ test("w/b/e move across word, punctuation, and whitespace boundaries", () => {
   }
 });
 
-test("word motions preserve Unicode punctuation boundaries inside native word segments", () => {
-  const editor = create("foo’bar tail");
-  normal(editor);
-  keys(editor, "gg");
-  for (const col of [3, 4, 8, 12]) {
-    keys(editor, "w");
-    assert.deepEqual(editor.getCursor(), { line: 0, col });
-  }
-  for (const col of [8, 4, 3, 0]) {
-    keys(editor, "b");
-    assert.deepEqual(editor.getCursor(), { line: 0, col });
-  }
-  for (const col of [2, 3, 6, 11]) {
-    keys(editor, "e");
-    assert.deepEqual(editor.getCursor(), { line: 0, col });
-  }
-});
+for (const [text, w, b, e] of [
+  // Pi keeps Unicode punctuation inside a word and joins `_` to adjacent punctuation.
+  ["foo’bar tail", [8, 12], [8, 0], [6, 11]],
+  ["a _!b c", [2, 4, 6, 7], [6, 4, 2, 0], [3, 4, 6, 6]],
+] as const) {
+  test(`w/b/e agree on Pi's word segmentation in ${JSON.stringify(text)}`, () => {
+    const editor = create(text);
+    normal(editor);
+    for (const [key, cols] of [["w", w], ["b", b], ["e", e]] as const) {
+      keys(editor, key === "b" ? "$" : "gg");
+      for (const col of cols) {
+        keys(editor, key);
+        assert.deepEqual(editor.getCursor(), { line: 0, col }, `${key} in ${text}`);
+      }
+    }
+  });
+}
 
 test("long-word motions use bounded native input calls rather than one arrow per grapheme", () => {
   const editor = new CustomEditor(tui, theme, bindings);

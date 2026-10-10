@@ -1,120 +1,49 @@
 import type { CustomEditor } from "@earendil-works/pi-coding-agent";
 
-const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-const words = new Intl.Segmenter(undefined, { granularity: "word" });
-type Kind = "space" | "word" | "punctuation" | "atom";
-const classify = (text: string): Kind => /^\s+$/u.test(text) ? "space" : /^[\p{L}\p{N}_]/u.test(text) ? "word" : "punctuation";
-
-/** Small-word motions using native word jumps, with arrows only at exact boundaries. */
+/** Vim-like w/b/e composed from Pi's native word jumps; graphemes and paste markers stay atomic. */
 export function moveWord(editor: CustomEditor, input: (data: string) => void, key: "w" | "b" | "e"): void {
   if (editor.isShowingAutocomplete()) input("\x1b");
   const lines = editor.getLines();
-  const mixedWords = new Map<number, [number, number][]>();
-
-  function crossesSmallWordBoundary(line: number, col: number, direction: -1 | 1): boolean {
-    let spans = mixedWords.get(line);
-    if (!spans) {
-      spans = [];
-      for (const part of words.segment(lines[line])) {
-        if (!part.isWordLike) continue;
-        let first: Kind | undefined;
-        for (const piece of graphemes.segment(part.segment)) {
-          const current = classify(piece.segment);
-          if (first === undefined) first = current;
-          else if (current !== first) { spans.push([part.index, part.index + part.segment.length]); break; }
-        }
-      }
-      mixedWords.set(line, spans);
-    }
-    let index = direction === 1 ? col : col - 1;
-    while (index >= 0 && index < lines[line].length && /\s/u.test(lines[line][index])) index += direction;
-    return spans.some(([start, end]) => index >= start && index < end);
-  }
-
-  function move(direction: -1 | 1, word = false): boolean {
-    const before = editor.getCursor();
-    if (direction === -1 && before.line === 0 && before.col === 0) return false;
-    if (direction === 1 && before.line === lines.length - 1 && before.col === lines[before.line].length) return false;
-    // Intl can include apostrophes inside words (e.g. foo’bar). Keep the
-    // existing small-word semantics there instead of jumping across punctuation.
-    if (word && crossesSmallWordBoundary(before.line, before.col, direction)) word = false;
-    input(word ? (direction === 1 ? "\x1bf" : "\x1bb") : (direction === 1 ? "\x1b[C" : "\x1b[D"));
-    const after = editor.getCursor();
-    if (before.line === after.line && before.col === after.col) {
-      throw new Error("Modal editor could not move to the requested word.");
-    }
-    return true;
-  }
-
-  function kind(): Kind | undefined {
+  const atStart = () => { const { line, col } = editor.getCursor(); return line === 0 && col === 0; };
+  const atEnd = () => { const { line, col } = editor.getCursor(); return line === lines.length - 1 && col === lines[line].length; };
+  // Line ends count as whitespace, so motions cross logical and blank lines.
+  const onSpace = () => { const { line, col } = editor.getCursor(); return col === lines[line].length || /\s/u.test(lines[line][col]); };
+  // Intl may split adjacent letters (e.g. Latin/CJK); keep them in one word run.
+  const insideWord = () => {
     const { line, col } = editor.getCursor();
-    const rest = lines[line].slice(col);
-    if (!rest) return line < lines.length - 1 ? "space" : undefined;
-    const first = graphemes.segment(rest)[Symbol.iterator]().next().value!.segment;
-    if (rest.startsWith("[paste #")) {
-      // Native arrows jump real collapsed markers, but not literal lookalikes.
-      move(1);
-      const after = editor.getCursor();
-      move(-1);
-      const restored = editor.getCursor();
-      if (restored.line !== line || restored.col !== col) {
-        throw new Error("Modal editor could not restore the cursor after a paste-marker probe.");
-      }
-      if (after.line === line && after.col > col + first.length) return "atom";
-    }
-    return classify(first);
+    return /[\p{L}\p{M}\p{N}_]$/u.test(lines[line].slice(0, col)) && /^[\p{L}\p{N}_]/u.test(lines[line].slice(col));
+  };
+  function send(data: string): void {
+    const before = editor.getCursor();
+    input(data);
+    const after = editor.getCursor();
+    if (before.line === after.line && before.col === after.col) throw new Error("Modal editor could not move to the requested word.");
   }
-
-  function skipWhitespace(): void {
-    while (kind() === "space") {
-      const before = editor.getCursor();
-      if (!move(1, true)) return;
+  // Native Alt+F skips whitespace AND the next run; back up to that run's start.
+  function skipSpace(): void {
+    while (onSpace() && !atEnd()) {
+      const { line, col } = editor.getCursor();
+      send("\x1bf");
       const after = editor.getCursor();
-      // A native word jump can consume leading space AND the following word.
-      // Back up to that word's start, but not when only whitespace was consumed.
-      if (after.line === before.line && /\S/u.test(lines[before.line].slice(before.col, after.col))) {
-        move(-1, true);
-        return;
-      }
+      if (after.line === line && /\S/u.test(lines[line].slice(col, after.col))) return send("\x1bb");
     }
-  }
-
-  function forwardRun(): void {
-    const current = kind();
-    if (current === undefined || current === "space") return;
-    do { if (!move(1, true)) return; }
-    while (current !== "atom" && kind() === current);
   }
 
   if (key === "b") {
-    if (!move(-1, true)) return;
-    while (kind() === "space") if (!move(-1, true)) return;
-    const current = kind();
-    if (current === "atom") return;
-    // Native Unicode segmentation may divide a contiguous small-word run.
-    while (move(-1)) {
-      const previous = kind();
-      move(1);
-      if (previous !== current) return;
-      if (!move(-1, true)) return;
-    }
+    while (!atStart()) { send("\x1bb"); if (!onSpace() && !insideWord()) return; }
     return;
   }
   if (key === "w") {
-    forwardRun();
-    skipWhitespace();
-    return;
+    if (!onSpace()) do send("\x1bf"); while (insideWord());
+    return skipSpace();
   }
-
-  // e must advance from an existing word end, rather than getting stuck on it.
-  if (!move(1)) return;
-  if (kind() === "space" || kind() === undefined) {
+  if (atEnd()) return;
+  send("\x1b[C");
+  if (onSpace()) {
     const { line, col } = editor.getCursor();
-    const hasNext = /\S/u.test(lines[line].slice(col)) || lines.slice(line + 1).some((text) => /\S/u.test(text));
-    if (!hasNext) { move(-1); return; }
-    skipWhitespace();
+    if (!/\S/u.test(lines[line].slice(col)) && !lines.slice(line + 1).some((text) => /\S/u.test(text))) return send("\x1b[D");
+    while (editor.getCursor().col === lines[editor.getCursor().line].length) send("\x1bf");
   }
-  if (kind() === "atom") return;
-  forwardRun();
-  move(-1);
+  do send("\x1bf"); while (insideWord());
+  send("\x1b[D");
 }
