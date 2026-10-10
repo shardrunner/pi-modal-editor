@@ -54,6 +54,9 @@ content, preserving draft whitespace and leaving the current draft/cursor alone.
 The snapshot is saved internally for `p`/`P` and copied to the system clipboard
 through Pi's public `copyToClipboard()` API. Asynchronous writes are serialized;
 failures produce a Pi UI error notification without losing the saved draft.
+The status line reports progress, successful copies, empty-draft clipboard clearing,
+and failures. Success appears only after the copy completes, and a later failure
+replaces the previous success message.
 
 This supersedes the earlier line-yank rejection policy: there is no longer a
 paste-marker regex, warning callback, or restriction on copying pasted content.
@@ -90,10 +93,11 @@ being run, then the production correction was validated.
 
 ## Validation
 
-- Modal: TypeScript check and all **39 tests** pass.
+- Modal: TypeScript check and all **40 tests** pass.
 - Clipboard regressions use an injected copier, not the desktop clipboard. They
   cover expanded Unicode/whitespace/empty snapshots, ordering of slow writes,
-  recovery after failure, retained internal paste behavior, and UI notifications.
+  recovery after failure, retained internal paste behavior, UI notifications, and
+  status-line feedback without premature or stale success messages.
 - Cursor regressions cover mode transitions, Unicode graphemes, line ends, IME
   markers, unrelated inverse styling, cached render output, and narrow widths.
   No live terminal visual check or desktop clipboard round trip was performed.

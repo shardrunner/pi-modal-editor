@@ -24,7 +24,11 @@ printable characters are ignored in normal mode. `yy` writes to the standard
 system clipboard through Pi's public `copyToClipboard()` API (native platform
 backends, with terminal OSC 52 support for remote/headless sessions). Clipboard
 failures produce an error notification without losing the internal snapshot used
-by `p`/`P`. Writes are serialized so repeated `yy` commands finish in order.
+by `p`/`P`. The status line shows `Copying draft to clipboard…`, then
+`Copied draft to clipboard` only after success (or `Clipboard cleared` for an
+empty draft). A failed copy shows `Clipboard copy failed` rather than leaving a
+stale success message. This status remains until the next copy or UI reset.
+Writes are serialized so repeated `yy` commands finish in order.
 On Linux, clipboard access may require `wl-copy` (Wayland) or `xclip`/`xsel` (X11);
 OSC 52 requires terminal support and permission.
 

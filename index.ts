@@ -9,6 +9,7 @@ const movement: Record<string, string> = {
 interface ModalEditorOptions {
   copyToClipboard?: (text: string) => Promise<void>;
   onClipboardError?: (message: string) => void;
+  onClipboardStatus?: (message: string) => void;
 }
 
 /** Decorate the existing instance: history, callbacks, focus and app handlers stay intact. */
@@ -27,7 +28,12 @@ export function addModalKeys(editor: CustomEditor, tui: TUI, options: ModalEdito
     const text = editor.getExpandedText();
     yank = text;
     // Snapshot immediately, but serialize async writes so the latest yy wins.
-    clipboardWrite = clipboardWrite.then(() => copy(text)).catch((error: unknown) => {
+    clipboardWrite = clipboardWrite.then(async () => {
+      options.onClipboardStatus?.("Copying draft to clipboard…");
+      await copy(text);
+      options.onClipboardStatus?.(text ? "Copied draft to clipboard" : "Clipboard cleared");
+    }).catch((error: unknown) => {
+      options.onClipboardStatus?.("Clipboard copy failed");
       reportClipboardError(`Failed to copy draft: ${error instanceof Error ? error.message : String(error)}`);
     });
   }
@@ -154,6 +160,7 @@ export default function (pi: ExtensionAPI, options: ModalEditorOptions = {}): vo
       addModalKeys(editor as CustomEditor, tui, {
         ...options,
         onClipboardError: options.onClipboardError ?? ((message) => ctx.ui.notify(message, "error")),
+        onClipboardStatus: options.onClipboardStatus ?? ((message) => ctx.ui.setStatus("modal-editor-clipboard", message)),
       });
       return editor;
     };

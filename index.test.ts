@@ -10,7 +10,10 @@ const theme: EditorTheme = { borderColor: (text) => text, selectList: getSelectL
 const tui = { requestRender() {}, terminal: { rows: 30, columns: 80 } } as unknown as TUI;
 const bindings = new KeybindingsManager();
 
-const noClipboard = { copyToClipboard: async (_text: string) => {} };
+const noClipboard = {
+  copyToClipboard: async (_text: string) => {},
+  onClipboardStatus: (_message: string) => {},
+};
 
 function create(text: string, options: Parameters<typeof addModalKeys>[2] = noClipboard) {
   const editor = new CustomEditor(tui, theme, bindings);
@@ -341,6 +344,35 @@ test("clipboard failures are reported without losing the saved draft or blocking
   assert.deepEqual(copies, ["saved", "saved\ntarget"]);
 });
 
+test("clipboard status confirms completion, clears stale success on failure, and reports empty copies", async () => {
+  const statuses: string[] = [];
+  let finish!: () => void;
+  const wait = new Promise<void>((resolve) => { finish = resolve; });
+  const editor = create("draft", {
+    copyToClipboard: async (text) => {
+      if (text === "draft") await wait;
+      if (text === "fail") throw new Error("unavailable");
+    },
+    onClipboardError: () => {},
+    onClipboardStatus: (message) => { statuses.push(message); },
+  });
+  normal(editor);
+  keys(editor, "yy");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(statuses, ["Copying draft to clipboard…"]);
+  finish();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(statuses.at(-1), "Copied draft to clipboard");
+  editor.setText("fail");
+  keys(editor, "yy");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(statuses.slice(-2), ["Copying draft to clipboard…", "Clipboard copy failed"]);
+  editor.setText("");
+  keys(editor, "yy");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(statuses.at(-1), "Clipboard cleared");
+});
+
 test("clipboard writes finish in command order even when the first write is slow", async () => {
   const copies: string[] = [];
   let finish!: () => void;
@@ -504,19 +536,22 @@ test("history and modal composition gets a fresh factory after Pi's lifecycle UI
   }
 });
 
-test("extension reports clipboard failures through Pi's UI", async () => {
+test("extension reports clipboard results through Pi's status line and UI", async () => {
   let start!: ExtensionHandler<SessionStartEvent>;
+  let fail = true;
   modalEditor({ on(_name: string, handler: unknown) { start = handler as typeof start; } } as unknown as ExtensionAPI, {
-    copyToClipboard: async () => { throw new Error("Clipboard unavailable"); },
+    copyToClipboard: async () => { if (fail) throw new Error("Clipboard unavailable"); },
   });
   let factory: Parameters<ExtensionUIContext["setEditorComponent"]>[0];
   const notifications: [string, string | undefined][] = [];
+  const statuses: [string, string][] = [];
   const ctx = {
     mode: "tui",
     ui: {
       getEditorComponent: () => factory,
       setEditorComponent: (next: typeof factory) => { factory = next; },
       notify: (message: string, type?: string) => { notifications.push([message, type]); },
+      setStatus: (key: string, message: string) => { statuses.push([key, message]); },
     },
   } as unknown as ExtensionContext;
   await start({ type: "session_start", reason: "startup" }, ctx);
@@ -528,6 +563,15 @@ test("extension reports clipboard failures through Pi's UI", async () => {
   assert.deepEqual(notifications, [["Failed to copy draft: Clipboard unavailable", "error"]]);
   keys(editor, "p");
   assert.equal(editor.getText(), "draft\ndraft");
+  assert.deepEqual(statuses, [
+    ["modal-editor-clipboard", "Copying draft to clipboard…"],
+    ["modal-editor-clipboard", "Clipboard copy failed"],
+  ]);
+  fail = false;
+  keys(editor, "yy");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(statuses.at(-1), ["modal-editor-clipboard", "Copied draft to clipboard"]);
+  assert.equal(notifications.length, 1);
 });
 
 test("does nothing outside TUI mode", async () => {

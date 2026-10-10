@@ -28,6 +28,11 @@ read_when:
   writes to preserve command order; notify on failure while retaining the internal
   register for `p`/`P`. Inject the copier/error reporter in tests so they never
   overwrite the user's real clipboard.
+- Report copy progress and results through `ctx.ui.setStatus()` under the dedicated
+  `modal-editor-clipboard` key. Show success only after the copier resolves; replace
+  it with a failure status if a later copy fails. An empty copy reports clipboard
+  clearing. Keep the latest result until the next copy or native UI reset; no
+  timers or additional lifecycle resources.
 - Differentiate the focused software cursor: underline in insert mode, native
   inverse block in normal mode. Restyle only the inverse sequence immediately
   after `CURSOR_MARKER`, preserving IME positioning and unrelated inverse text.
