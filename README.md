@@ -1,5 +1,7 @@
 # Pi modal editor
 
+> **Disclaimer:** This extension is vibe coded. Use at your own risk.
+
 Small Vim-like bindings on Pi's native prompt editor (Pi 1.1.0). Starts in insert mode and shows the
 current mode in the editor's bottom border. The focused cursor is a vertical
 I-beam in insert mode and a block in normal mode. The development checkout lives at
