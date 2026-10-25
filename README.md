@@ -4,8 +4,7 @@
 
 Small Vim-like bindings on Pi's native prompt editor (Pi 1.1.0). Starts in insert mode and shows the
 current mode in the editor's bottom border. The focused cursor is a vertical
-I-beam in insert mode and a block in normal mode. The development checkout lives at
-`/home/michaelb/Documents/repos/projects/pi-extensions/pi-modal-editor`.
+I-beam in insert mode and a block in normal mode.
 
 | Key | Normal-mode behavior |
 | --- | --- |
