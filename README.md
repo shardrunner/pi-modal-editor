@@ -83,10 +83,10 @@ Native undo restores these deletions in character/grapheme-sized steps.
 
 ## Installation and composition
 
-Install from the private GitHub repository (requires GitHub SSH access):
+Install from GitHub:
 
 ```sh
-pi install git:git@github.com:shardrunner/pi-modal-editor
+pi install git:github.com/shardrunner/pi-modal-editor
 ```
 
 This adds the GitHub source to `~/.pi/agent/settings.json`'s `packages` array.
@@ -96,7 +96,7 @@ rather than keeping both sources, so the extension loads only once.
 After pushing changes, update the installed checkout:
 
 ```sh
-pi update git:git@github.com:shardrunner/pi-modal-editor
+pi update git:github.com/shardrunner/pi-modal-editor
 ```
 
 Run `/reload` in active sessions after installation or updates. Editing the
@@ -136,3 +136,7 @@ Without either, only those two integration tests are skipped; there is no
 cross-repository production dependency. They check both load orders and simulated
 lifecycle UI resets with a synthetic session; startup ordering of Pi's own history
 population is modeled, not exercised.
+
+## License
+
+[MIT](LICENSE) © 2026 Michael Brunner.

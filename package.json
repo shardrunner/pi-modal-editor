@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Small Vim-like keybindings on Pi's native prompt editor.",
+  "license": "MIT",
   "type": "module",
   "pi": { "extensions": ["./index.ts"] },
   "scripts": {
@@ -13,6 +14,11 @@
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*"
+  },
+  "overrides": {
+    "@earendil-works/pi-coding-agent": {
+      "undici": "8.12.3"
+    }
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "1.1.0",
