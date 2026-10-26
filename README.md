@@ -1,5 +1,7 @@
 # Pi modal editor
 
+> **Disclaimer:** This extension is vibe coded for personal use. Use at your own risk.
+
 Edit long [Pi](https://pi.dev) prompts with Vim-style motions while keeping the
 native editor's undo, history, and collapsed-paste handling (Pi 1.1.0).
 Starts in insert mode and shows the current mode in the editor's bottom border.
@@ -120,11 +122,6 @@ same entries Pi itself loads. On startup Pi fills it after installation, so moda
 skips the refill. Remaining gap: after `/reload`, `!bash` commands and slash
 commands typed earlier are no longer in Up history, because Pi never stores them
 in the session. `/history` is unaffected.
-
-## Project status
-
-Developed with AI assistance for personal use. Provided as-is, without support or
-compatibility guarantees. Review the source and documented limitations before use.
 
 ## Development
 
